@@ -42,9 +42,9 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
+#include <media/v4l2-fwnode.h>
 #include <media/v4l2-image-sizes.h>
 #include <media/v4l2-mediabus.h>
-#include <media/v4l2-of.h>
 #include <media/v4l2-subdev.h>
 
 #define DRIVER_NAME "ov2659"
@@ -1055,7 +1055,7 @@ static int ov2659_get_fmt(struct v4l2_subdev *sd,
 		mutex_unlock(&ov2659->lock);
 		return 0;
 #else
-	return -ENOTTY;
+		return -EINVAL;
 #endif
 	}
 
@@ -1117,11 +1117,12 @@ static int ov2659_set_fmt(struct v4l2_subdev *sd,
 		if (ov2659_formats[index].code == mf->code)
 			break;
 
-	if (index < 0)
-		return -EINVAL;
+	if (index < 0) {
+		index = 0;
+		mf->code = ov2659_formats[index].code;
+	}
 
 	mf->colorspace = V4L2_COLORSPACE_SRGB;
-	mf->code = ov2659_formats[index].code;
 	mf->field = V4L2_FIELD_NONE;
 
 	mutex_lock(&ov2659->lock);
@@ -1130,8 +1131,6 @@ static int ov2659_set_fmt(struct v4l2_subdev *sd,
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
 		mf = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
 		*mf = fmt->format;
-#else
-		return -ENOTTY;
 #endif
 	} else {
 		s64 val;
@@ -1309,7 +1308,8 @@ static const struct v4l2_subdev_internal_ops ov2659_subdev_internal_ops = {
 static int ov2659_detect(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	u8 pid, ver;
+	u8 pid = 0;
+	u8 ver = 0;
 	int ret;
 
 	dev_dbg(&client->dev, "%s:\n", __func__);
@@ -1347,8 +1347,9 @@ static struct ov2659_platform_data *
 ov2659_get_pdata(struct i2c_client *client)
 {
 	struct ov2659_platform_data *pdata;
-	struct v4l2_of_endpoint *bus_cfg;
+	struct v4l2_fwnode_endpoint bus_cfg = { .bus_type = 0 };
 	struct device_node *endpoint;
+	int ret;
 
 	if (!IS_ENABLED(CONFIG_OF) || !client->dev.of_node)
 		return client->dev.platform_data;
@@ -1357,8 +1358,9 @@ ov2659_get_pdata(struct i2c_client *client)
 	if (!endpoint)
 		return NULL;
 
-	bus_cfg = v4l2_of_alloc_parse_endpoint(endpoint);
-	if (IS_ERR(bus_cfg)) {
+	ret = v4l2_fwnode_endpoint_alloc_parse(of_fwnode_handle(endpoint),
+					       &bus_cfg);
+	if (ret) {
 		pdata = NULL;
 		goto done;
 	}
@@ -1367,23 +1369,22 @@ ov2659_get_pdata(struct i2c_client *client)
 	if (!pdata)
 		goto done;
 
-	if (!bus_cfg->nr_of_link_frequencies) {
+	if (!bus_cfg.nr_of_link_frequencies) {
 		dev_err(&client->dev,
 			"link-frequencies property not found or too many\n");
 		pdata = NULL;
 		goto done;
 	}
 
-	pdata->link_frequency = bus_cfg->link_frequencies[0];
+	pdata->link_frequency = bus_cfg.link_frequencies[0];
 
 done:
-	v4l2_of_free_endpoint(bus_cfg);
+	v4l2_fwnode_endpoint_free(&bus_cfg);
 	of_node_put(endpoint);
 	return pdata;
 }
 
-static int ov2659_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int ov2659_probe(struct i2c_client *client)
 {
 	const struct ov2659_platform_data *pdata = ov2659_get_pdata(client);
 	struct v4l2_subdev *sd;
@@ -1474,9 +1475,7 @@ static int ov2659_probe(struct i2c_client *client,
 
 error:
 	v4l2_ctrl_handler_free(&ov2659->ctrls);
-#if defined(CONFIG_MEDIA_CONTROLLER)
 	media_entity_cleanup(&sd->entity);
-#endif
 	mutex_destroy(&ov2659->lock);
 	return ret;
 }
@@ -1488,9 +1487,7 @@ static int ov2659_remove(struct i2c_client *client)
 
 	v4l2_ctrl_handler_free(&ov2659->ctrls);
 	v4l2_async_unregister_subdev(sd);
-#if defined(CONFIG_MEDIA_CONTROLLER)
 	media_entity_cleanup(&sd->entity);
-#endif
 	mutex_destroy(&ov2659->lock);
 
 	return 0;
@@ -1515,7 +1512,7 @@ static struct i2c_driver ov2659_i2c_driver = {
 		.name	= DRIVER_NAME,
 		.of_match_table = of_match_ptr(ov2659_of_match),
 	},
-	.probe		= ov2659_probe,
+	.probe_new	= ov2659_probe,
 	.remove		= ov2659_remove,
 	.id_table	= ov2659_id,
 };

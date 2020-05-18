@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * QUICC Engine GPIOs
  *
  * Copyright (c) MontaVista Software, Inc. 2008.
  *
  * Author: Anton Vorontsov <avorontsov@ru.mvista.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -18,6 +14,8 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
+#include <linux/gpio/driver.h>
+/* FIXME: needed for gpio_to_chip() get rid of this */
 #include <linux/gpio.h>
 #include <linux/slab.h>
 #include <linux/export.h>
@@ -37,15 +35,10 @@ struct qe_gpio_chip {
 	struct qe_pio_regs saved_regs;
 };
 
-static inline struct qe_gpio_chip *
-to_qe_gpio_chip(struct of_mm_gpio_chip *mm_gc)
-{
-	return container_of(mm_gc, struct qe_gpio_chip, mm_gc);
-}
-
 static void qe_gpio_save_regs(struct of_mm_gpio_chip *mm_gc)
 {
-	struct qe_gpio_chip *qe_gc = to_qe_gpio_chip(mm_gc);
+	struct qe_gpio_chip *qe_gc =
+		container_of(mm_gc, struct qe_gpio_chip, mm_gc);
 	struct qe_pio_regs __iomem *regs = mm_gc->regs;
 
 	qe_gc->cpdata = in_be32(&regs->cpdata);
@@ -69,7 +62,7 @@ static int qe_gpio_get(struct gpio_chip *gc, unsigned int gpio)
 static void qe_gpio_set(struct gpio_chip *gc, unsigned int gpio, int val)
 {
 	struct of_mm_gpio_chip *mm_gc = to_of_mm_gpio_chip(gc);
-	struct qe_gpio_chip *qe_gc = to_qe_gpio_chip(mm_gc);
+	struct qe_gpio_chip *qe_gc = gpiochip_get_data(gc);
 	struct qe_pio_regs __iomem *regs = mm_gc->regs;
 	unsigned long flags;
 	u32 pin_mask = 1 << (QE_PIO_PINS - 1 - gpio);
@@ -86,10 +79,37 @@ static void qe_gpio_set(struct gpio_chip *gc, unsigned int gpio, int val)
 	spin_unlock_irqrestore(&qe_gc->lock, flags);
 }
 
+static void qe_gpio_set_multiple(struct gpio_chip *gc,
+				 unsigned long *mask, unsigned long *bits)
+{
+	struct of_mm_gpio_chip *mm_gc = to_of_mm_gpio_chip(gc);
+	struct qe_gpio_chip *qe_gc = gpiochip_get_data(gc);
+	struct qe_pio_regs __iomem *regs = mm_gc->regs;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&qe_gc->lock, flags);
+
+	for (i = 0; i < gc->ngpio; i++) {
+		if (*mask == 0)
+			break;
+		if (__test_and_clear_bit(i, mask)) {
+			if (test_bit(i, bits))
+				qe_gc->cpdata |= (1U << (QE_PIO_PINS - 1 - i));
+			else
+				qe_gc->cpdata &= ~(1U << (QE_PIO_PINS - 1 - i));
+		}
+	}
+
+	out_be32(&regs->cpdata, qe_gc->cpdata);
+
+	spin_unlock_irqrestore(&qe_gc->lock, flags);
+}
+
 static int qe_gpio_dir_in(struct gpio_chip *gc, unsigned int gpio)
 {
 	struct of_mm_gpio_chip *mm_gc = to_of_mm_gpio_chip(gc);
-	struct qe_gpio_chip *qe_gc = to_qe_gpio_chip(mm_gc);
+	struct qe_gpio_chip *qe_gc = gpiochip_get_data(gc);
 	unsigned long flags;
 
 	spin_lock_irqsave(&qe_gc->lock, flags);
@@ -104,7 +124,7 @@ static int qe_gpio_dir_in(struct gpio_chip *gc, unsigned int gpio)
 static int qe_gpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 {
 	struct of_mm_gpio_chip *mm_gc = to_of_mm_gpio_chip(gc);
-	struct qe_gpio_chip *qe_gc = to_qe_gpio_chip(mm_gc);
+	struct qe_gpio_chip *qe_gc = gpiochip_get_data(gc);
 	unsigned long flags;
 
 	qe_gpio_set(gc, gpio, val);
@@ -155,8 +175,10 @@ struct qe_pin *qe_pin_request(struct device_node *np, int index)
 	if (err < 0)
 		goto err0;
 	gc = gpio_to_chip(err);
-	if (WARN_ON(!gc))
+	if (WARN_ON(!gc)) {
+		err = -ENODEV;
 		goto err0;
+	}
 
 	if (!of_device_is_compatible(gc->of_node, "fsl,mpc8323-qe-pario-bank")) {
 		pr_debug("%s: tried to get a non-qe pin\n", __func__);
@@ -165,7 +187,7 @@ struct qe_pin *qe_pin_request(struct device_node *np, int index)
 	}
 
 	mm_gc = to_of_mm_gpio_chip(gc);
-	qe_gc = to_qe_gpio_chip(mm_gc);
+	qe_gc = gpiochip_get_data(gc);
 
 	spin_lock_irqsave(&qe_gc->lock, flags);
 
@@ -301,14 +323,15 @@ static int __init qe_add_gpiochips(void)
 		gc->direction_output = qe_gpio_dir_out;
 		gc->get = qe_gpio_get;
 		gc->set = qe_gpio_set;
+		gc->set_multiple = qe_gpio_set_multiple;
 
-		ret = of_mm_gpiochip_add(np, mm_gc);
+		ret = of_mm_gpiochip_add_data(np, mm_gc, qe_gc);
 		if (ret)
 			goto err;
 		continue;
 err:
-		pr_err("%s: registration failed with status %d\n",
-		       np->full_name, ret);
+		pr_err("%pOF: registration failed with status %d\n",
+		       np, ret);
 		kfree(qe_gc);
 		/* try others anyway */
 	}

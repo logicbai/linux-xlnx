@@ -1,22 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Intel MIC Platform Software Stack (MPSS)
  *
  * Copyright(c) 2013 Intel Corporation.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * The full GNU General Public License is included in this distribution in
- * the file called "COPYING".
- *
  * Intel MIC Host driver.
- *
  */
 #include <linux/delay.h>
 #include <linux/firmware.h>
@@ -38,7 +26,7 @@ static inline struct mic_device *vpdev_to_mdev(struct device *dev)
 static dma_addr_t
 _mic_dma_map_page(struct device *dev, struct page *page,
 		  unsigned long offset, size_t size,
-		  enum dma_data_direction dir, struct dma_attrs *attrs)
+		  enum dma_data_direction dir, unsigned long attrs)
 {
 	void *va = phys_to_virt(page_to_phys(page)) + offset;
 	struct mic_device *mdev = vpdev_to_mdev(dev);
@@ -48,7 +36,7 @@ _mic_dma_map_page(struct device *dev, struct page *page,
 
 static void _mic_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 				size_t size, enum dma_data_direction dir,
-				struct dma_attrs *attrs)
+				unsigned long attrs)
 {
 	struct mic_device *mdev = vpdev_to_mdev(dev);
 
@@ -76,7 +64,7 @@ static void __mic_free_irq(struct vop_device *vpdev,
 {
 	struct mic_device *mdev = vpdev_to_mdev(&vpdev->dev);
 
-	return mic_free_irq(mdev, cookie, data);
+	mic_free_irq(mdev, cookie, data);
 }
 
 static void __mic_ack_interrupt(struct vop_device *vpdev, int num)
@@ -133,8 +121,8 @@ static struct vop_hw_ops vop_hw_ops = {
 	.get_dp = __mic_get_dp,
 	.get_remote_dp = __mic_get_remote_dp,
 	.send_intr = __mic_send_intr,
-	.ioremap = __mic_ioremap,
-	.iounmap = __mic_iounmap,
+	.remap = __mic_ioremap,
+	.unmap = __mic_iounmap,
 };
 
 static inline struct mic_device *scdev_to_mdev(struct scif_hw_dev *scdev)
@@ -144,12 +132,12 @@ static inline struct mic_device *scdev_to_mdev(struct scif_hw_dev *scdev)
 
 static void *__mic_dma_alloc(struct device *dev, size_t size,
 			     dma_addr_t *dma_handle, gfp_t gfp,
-			     struct dma_attrs *attrs)
+			     unsigned long attrs)
 {
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
 	struct mic_device *mdev = scdev_to_mdev(scdev);
 	dma_addr_t tmp;
-	void *va = kmalloc(size, gfp);
+	void *va = kmalloc(size, gfp | __GFP_ZERO);
 
 	if (va) {
 		tmp = mic_map_single(mdev, va, size);
@@ -164,7 +152,7 @@ static void *__mic_dma_alloc(struct device *dev, size_t size,
 }
 
 static void __mic_dma_free(struct device *dev, size_t size, void *vaddr,
-			   dma_addr_t dma_handle, struct dma_attrs *attrs)
+			   dma_addr_t dma_handle, unsigned long attrs)
 {
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
 	struct mic_device *mdev = scdev_to_mdev(scdev);
@@ -176,7 +164,7 @@ static void __mic_dma_free(struct device *dev, size_t size, void *vaddr,
 static dma_addr_t
 __mic_dma_map_page(struct device *dev, struct page *page, unsigned long offset,
 		   size_t size, enum dma_data_direction dir,
-		   struct dma_attrs *attrs)
+		   unsigned long attrs)
 {
 	void *va = phys_to_virt(page_to_phys(page)) + offset;
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
@@ -188,7 +176,7 @@ __mic_dma_map_page(struct device *dev, struct page *page, unsigned long offset,
 static void
 __mic_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 		     size_t size, enum dma_data_direction dir,
-		     struct dma_attrs *attrs)
+		     unsigned long attrs)
 {
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
 	struct mic_device *mdev = scdev_to_mdev(scdev);
@@ -198,7 +186,7 @@ __mic_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 
 static int __mic_dma_map_sg(struct device *dev, struct scatterlist *sg,
 			    int nents, enum dma_data_direction dir,
-			    struct dma_attrs *attrs)
+			    unsigned long attrs)
 {
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
 	struct mic_device *mdev = scdev_to_mdev(scdev);
@@ -229,7 +217,7 @@ err:
 static void __mic_dma_unmap_sg(struct device *dev,
 			       struct scatterlist *sg, int nents,
 			       enum dma_data_direction dir,
-			       struct dma_attrs *attrs)
+			       unsigned long attrs)
 {
 	struct scif_hw_dev *scdev = dev_get_drvdata(dev);
 	struct mic_device *mdev = scdev_to_mdev(scdev);
@@ -245,7 +233,7 @@ static void __mic_dma_unmap_sg(struct device *dev,
 	dma_unmap_sg(&mdev->pdev->dev, sg, nents, dir);
 }
 
-static struct dma_map_ops __mic_dma_ops = {
+static const struct dma_map_ops __mic_dma_ops = {
 	.alloc = __mic_dma_alloc,
 	.free = __mic_dma_free,
 	.map_page = __mic_dma_map_page,
@@ -272,7 +260,7 @@ ___mic_free_irq(struct scif_hw_dev *scdev,
 {
 	struct mic_device *mdev = scdev_to_mdev(scdev);
 
-	return mic_free_irq(mdev, cookie, data);
+	mic_free_irq(mdev, cookie, data);
 }
 
 static void ___mic_ack_interrupt(struct scif_hw_dev *scdev, int num)
@@ -315,8 +303,8 @@ static struct scif_hw_ops scif_hw_ops = {
 	.ack_interrupt = ___mic_ack_interrupt,
 	.next_db = ___mic_next_db,
 	.send_intr = ___mic_send_intr,
-	.ioremap = ___mic_ioremap,
-	.iounmap = ___mic_iounmap,
+	.remap = ___mic_ioremap,
+	.unmap = ___mic_iounmap,
 };
 
 static inline struct mic_device *mbdev_to_mdev(struct mbus_device *mbdev)
@@ -327,7 +315,7 @@ static inline struct mic_device *mbdev_to_mdev(struct mbus_device *mbdev)
 static dma_addr_t
 mic_dma_map_page(struct device *dev, struct page *page,
 		 unsigned long offset, size_t size, enum dma_data_direction dir,
-		 struct dma_attrs *attrs)
+		 unsigned long attrs)
 {
 	void *va = phys_to_virt(page_to_phys(page)) + offset;
 	struct mic_device *mdev = dev_get_drvdata(dev->parent);
@@ -338,13 +326,13 @@ mic_dma_map_page(struct device *dev, struct page *page,
 static void
 mic_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 		   size_t size, enum dma_data_direction dir,
-		   struct dma_attrs *attrs)
+		   unsigned long attrs)
 {
 	struct mic_device *mdev = dev_get_drvdata(dev->parent);
 	mic_unmap_single(mdev, dma_addr, size);
 }
 
-static struct dma_map_ops mic_dma_ops = {
+static const struct dma_map_ops mic_dma_ops = {
 	.map_page = mic_dma_map_page,
 	.unmap_page = mic_dma_unmap_page,
 };
@@ -362,7 +350,7 @@ _mic_request_threaded_irq(struct mbus_device *mbdev,
 static void _mic_free_irq(struct mbus_device *mbdev,
 			  struct mic_irq *cookie, void *data)
 {
-	return mic_free_irq(mbdev_to_mdev(mbdev), cookie, data);
+	mic_free_irq(mbdev_to_mdev(mbdev), cookie, data);
 }
 
 static void _mic_ack_interrupt(struct mbus_device *mbdev, int num)

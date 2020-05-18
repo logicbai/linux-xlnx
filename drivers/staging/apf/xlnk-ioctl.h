@@ -17,10 +17,7 @@
 #define XLNK_IOCDMAWAIT		_IOWR(XLNK_IOC_MAGIC, 9, unsigned long)
 #define XLNK_IOCDMARELEASE	_IOWR(XLNK_IOC_MAGIC, 10, unsigned long)
 
-
-
-
-
+#define XLNK_IOCMEMOP		_IOWR(XLNK_IOC_MAGIC, 25, unsigned long)
 #define XLNK_IOCDEVREGISTER	_IOWR(XLNK_IOC_MAGIC, 16, unsigned long)
 #define XLNK_IOCDMAREGISTER	_IOWR(XLNK_IOC_MAGIC, 17, unsigned long)
 #define XLNK_IOCDEVUNREGISTER	_IOWR(XLNK_IOC_MAGIC, 18, unsigned long)
@@ -29,9 +26,12 @@
 #define XLNK_IOCMCDMAREGISTER	_IOWR(XLNK_IOC_MAGIC, 23, unsigned long)
 #define XLNK_IOCCACHECTRL	_IOWR(XLNK_IOC_MAGIC, 24, unsigned long)
 
+#define XLNK_IOCIRQREGISTER	_IOWR(XLNK_IOC_MAGIC, 35, unsigned long)
+#define XLNK_IOCIRQUNREGISTER	_IOWR(XLNK_IOC_MAGIC, 36, unsigned long)
+#define XLNK_IOCIRQWAIT		_IOWR(XLNK_IOC_MAGIC, 37, unsigned long)
+
 #define XLNK_IOCSHUTDOWN	_IOWR(XLNK_IOC_MAGIC, 100, unsigned long)
 #define XLNK_IOCRECRES		_IOWR(XLNK_IOC_MAGIC, 101, unsigned long)
-#define XLNK_IOCCONFIG		_IOWR(XLNK_IOC_MAGIC, 30, unsigned long)
 #define XLNK_IOC_MAXNR		101
 
 #endif

@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2009-2010 Pengutronix
  * Uwe Kleine-Koenig <u.kleine-koenig@pengutronix.de>
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 as published by the
- * Free Software Foundation.
  */
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
@@ -154,18 +151,6 @@ struct platform_device *__init imx_add_imx_ssi(
 		const struct imx_ssi_platform_data *pdata);
 
 #include <linux/platform_data/serial-imx.h>
-struct imx_imx_uart_3irq_data {
-	int id;
-	resource_size_t iobase;
-	resource_size_t iosize;
-	resource_size_t irqrx;
-	resource_size_t irqtx;
-	resource_size_t irqrts;
-};
-struct platform_device *__init imx_add_imx_uart_3irq(
-		const struct imx_imx_uart_3irq_data *data,
-		const struct imxuart_platform_data *pdata);
-
 struct imx_imx_uart_1irq_data {
 	int id;
 	resource_size_t iobase;

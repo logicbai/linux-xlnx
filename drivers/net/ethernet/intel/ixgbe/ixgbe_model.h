@@ -1,28 +1,5 @@
-/*******************************************************************************
- *
- * Intel 10 Gigabit PCI Express Linux drive
- * Copyright(c) 2016 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * The full GNU General Public License is included in this distribution in
- * the file called "COPYING".
- *
- * Contact Information:
- * e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
- * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
- *
- ******************************************************************************/
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2018 Intel Corporation. */
 
 #ifndef _IXGBE_MODEL_H_
 #define _IXGBE_MODEL_H_
@@ -38,12 +15,22 @@ struct ixgbe_mat_field {
 	unsigned int type;
 };
 
+struct ixgbe_jump_table {
+	struct ixgbe_mat_field *mat;
+	struct ixgbe_fdir_filter *input;
+	union ixgbe_atr_input *mask;
+	u32 link_hdl;
+	unsigned long child_loc_map[32];
+};
+
+#define IXGBE_MAX_HW_ENTRIES 2045
+
 static inline int ixgbe_mat_prgm_sip(struct ixgbe_fdir_filter *input,
 				     union ixgbe_atr_input *mask,
 				     u32 val, u32 m)
 {
-	input->filter.formatted.src_ip[0] = val;
-	mask->formatted.src_ip[0] = m;
+	input->filter.formatted.src_ip[0] = (__force __be32)val;
+	mask->formatted.src_ip[0] = (__force __be32)m;
 	return 0;
 }
 
@@ -51,8 +38,8 @@ static inline int ixgbe_mat_prgm_dip(struct ixgbe_fdir_filter *input,
 				     union ixgbe_atr_input *mask,
 				     u32 val, u32 m)
 {
-	input->filter.formatted.dst_ip[0] = val;
-	mask->formatted.dst_ip[0] = m;
+	input->filter.formatted.dst_ip[0] = (__force __be32)val;
+	mask->formatted.dst_ip[0] = (__force __be32)m;
 	return 0;
 }
 
@@ -68,10 +55,10 @@ static inline int ixgbe_mat_prgm_ports(struct ixgbe_fdir_filter *input,
 				       union ixgbe_atr_input *mask,
 				       u32 val, u32 m)
 {
-	input->filter.formatted.src_port = val & 0xffff;
-	mask->formatted.src_port = m & 0xffff;
-	input->filter.formatted.dst_port = val >> 16;
-	mask->formatted.dst_port = m >> 16;
+	input->filter.formatted.src_port = (__force __be16)(val & 0xffff);
+	mask->formatted.src_port = (__force __be16)(m & 0xffff);
+	input->filter.formatted.dst_port = (__force __be16)(val >> 16);
+	mask->formatted.dst_port = (__force __be16)(m >> 16);
 
 	return 0;
 };
@@ -79,6 +66,12 @@ static inline int ixgbe_mat_prgm_ports(struct ixgbe_fdir_filter *input,
 static struct ixgbe_mat_field ixgbe_tcp_fields[] = {
 	{.off = 0, .val = ixgbe_mat_prgm_ports,
 	 .type = IXGBE_ATR_FLOW_TYPE_TCPV4},
+	{ .val = NULL } /* terminal node */
+};
+
+static struct ixgbe_mat_field ixgbe_udp_fields[] = {
+	{.off = 0, .val = ixgbe_mat_prgm_ports,
+	 .type = IXGBE_ATR_FLOW_TYPE_UDPV4},
 	{ .val = NULL } /* terminal node */
 };
 
@@ -98,6 +91,8 @@ struct ixgbe_nexthdr {
 static struct ixgbe_nexthdr ixgbe_ipv4_jumps[] = {
 	{ .o = 0, .s = 6, .m = 0xf,
 	  .off = 8, .val = 0x600, .mask = 0xff00, .jump = ixgbe_tcp_fields},
+	{ .o = 0, .s = 6, .m = 0xf,
+	  .off = 8, .val = 0x1100, .mask = 0xff00, .jump = ixgbe_udp_fields},
 	{ .jump = NULL } /* terminal node */
 };
 #endif /* _IXGBE_MODEL_H_ */

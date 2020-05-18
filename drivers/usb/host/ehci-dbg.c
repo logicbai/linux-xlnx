@@ -1,16 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2001-2002 by David Brownell
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
- *
  */
 
 /* this file is part of ehci-hcd.c */
@@ -52,13 +42,6 @@ static void dbg_hcs_params(struct ehci_hcd *ehci, char *label)
 		ehci_dbg(ehci, "%s portroute %s\n", label, buf);
 	}
 }
-#else
-
-static inline void dbg_hcs_params(struct ehci_hcd *ehci, char *label) {}
-
-#endif
-
-#ifdef CONFIG_DYNAMIC_DEBUG
 
 /*
  * check the values in the HCCPARAMS register
@@ -92,13 +75,6 @@ static void dbg_hcc_params(struct ehci_hcd *ehci, char *label)
 				" 32 periodic list" : "");
 	}
 }
-#else
-
-static inline void dbg_hcc_params(struct ehci_hcd *ehci, char *label) {}
-
-#endif
-
-#ifdef CONFIG_DYNAMIC_DEBUG
 
 static void __maybe_unused
 dbg_qtd(const char *label, struct ehci_hcd *ehci, struct ehci_qtd *qtd)
@@ -281,37 +257,6 @@ dbg_port_buf(char *buf, unsigned len, const char *label, int port, u32 status)
 		(status & PORT_CONNECT) ? " CONNECT" : "");
 }
 
-#else
-static inline void __maybe_unused
-dbg_qh(char *label, struct ehci_hcd *ehci, struct ehci_qh *qh)
-{}
-
-static inline int __maybe_unused
-dbg_status_buf(char *buf, unsigned len, const char *label, u32 status)
-{
-	return 0;
-}
-
-static inline int __maybe_unused
-dbg_command_buf(char *buf, unsigned len, const char *label, u32 command)
-{
-	return 0;
-}
-
-static inline int __maybe_unused
-dbg_intr_buf(char *buf, unsigned len, const char *label, u32 enable)
-{
-	return 0;
-}
-
-static inline int __maybe_unused
-dbg_port_buf(char *buf, unsigned len, const char *label, int port, u32 status)
-{
-	return 0;
-}
-
-#endif	/* CONFIG_DYNAMIC_DEBUG */
-
 static inline void
 dbg_status(struct ehci_hcd *ehci, const char *label, u32 status)
 {
@@ -340,13 +285,6 @@ dbg_port(struct ehci_hcd *ehci, const char *label, int port, u32 status)
 }
 
 /*-------------------------------------------------------------------------*/
-
-#ifndef CONFIG_DYNAMIC_DEBUG
-
-static inline void create_debug_files(struct ehci_hcd *bus) { }
-static inline void remove_debug_files(struct ehci_hcd *bus) { }
-
-#else
 
 /* troubleshooting help: expose state in debugfs */
 
@@ -855,7 +793,7 @@ static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 	size -= temp;
 	next += temp;
 
-#ifdef	CONFIG_PCI
+#ifdef	CONFIG_USB_PCI
 	/* EHCI 0.96 and later may have "extended capabilities" */
 	if (dev_is_pci(hcd->self.controller)) {
 		struct pci_dev	*pdev;
@@ -889,7 +827,7 @@ static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 			default:		/* unknown */
 				break;
 			}
-			temp = (cap >> 8) & 0xff;
+			offset = (cap >> 8) & 0xff;
 		}
 	}
 #endif
@@ -1090,34 +1028,54 @@ static inline void create_debug_files(struct ehci_hcd *ehci)
 	struct usb_bus *bus = &ehci_to_hcd(ehci)->self;
 
 	ehci->debug_dir = debugfs_create_dir(bus->bus_name, ehci_debug_root);
-	if (!ehci->debug_dir)
-		return;
 
-	if (!debugfs_create_file("async", S_IRUGO, ehci->debug_dir, bus,
-						&debug_async_fops))
-		goto file_error;
-
-	if (!debugfs_create_file("bandwidth", S_IRUGO, ehci->debug_dir, bus,
-						&debug_bandwidth_fops))
-		goto file_error;
-
-	if (!debugfs_create_file("periodic", S_IRUGO, ehci->debug_dir, bus,
-						&debug_periodic_fops))
-		goto file_error;
-
-	if (!debugfs_create_file("registers", S_IRUGO, ehci->debug_dir, bus,
-						    &debug_registers_fops))
-		goto file_error;
-
-	return;
-
-file_error:
-	debugfs_remove_recursive(ehci->debug_dir);
+	debugfs_create_file("async", S_IRUGO, ehci->debug_dir, bus,
+			    &debug_async_fops);
+	debugfs_create_file("bandwidth", S_IRUGO, ehci->debug_dir, bus,
+			    &debug_bandwidth_fops);
+	debugfs_create_file("periodic", S_IRUGO, ehci->debug_dir, bus,
+			    &debug_periodic_fops);
+	debugfs_create_file("registers", S_IRUGO, ehci->debug_dir, bus,
+			    &debug_registers_fops);
 }
 
 static inline void remove_debug_files(struct ehci_hcd *ehci)
 {
 	debugfs_remove_recursive(ehci->debug_dir);
 }
+
+#else /* CONFIG_DYNAMIC_DEBUG */
+
+static inline void dbg_hcs_params(struct ehci_hcd *ehci, char *label) { }
+static inline void dbg_hcc_params(struct ehci_hcd *ehci, char *label) { }
+
+static inline void __maybe_unused dbg_qh(const char *label,
+		struct ehci_hcd *ehci, struct ehci_qh *qh) { }
+
+static inline int __maybe_unused dbg_status_buf(const char *buf,
+		unsigned int len, const char *label, u32 status)
+{ return 0; }
+
+static inline int __maybe_unused dbg_command_buf(const char *buf,
+		unsigned int len, const char *label, u32 command)
+{ return 0; }
+
+static inline int __maybe_unused dbg_intr_buf(const char *buf,
+		unsigned int len, const char *label, u32 enable)
+{ return 0; }
+
+static inline int __maybe_unused dbg_port_buf(char *buf,
+		unsigned int len, const char *label, int port, u32 status)
+{ return 0; }
+
+static inline void dbg_status(struct ehci_hcd *ehci, const char *label,
+		u32 status) { }
+static inline void dbg_cmd(struct ehci_hcd *ehci, const char *label,
+		u32 command) { }
+static inline void dbg_port(struct ehci_hcd *ehci, const char *label,
+		int port, u32 status) { }
+
+static inline void create_debug_files(struct ehci_hcd *bus) { }
+static inline void remove_debug_files(struct ehci_hcd *bus) { }
 
 #endif /* CONFIG_DYNAMIC_DEBUG */

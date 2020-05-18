@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Function calling ABI conversion from Linux to EFI for x86_64
  *
@@ -11,7 +12,6 @@
 #include <asm/msr.h>
 #include <asm/processor-flags.h>
 #include <asm/page_types.h>
-#include <asm/frame.h>
 
 #define SAVE_XMM			\
 	mov %rsp, %rax;			\
@@ -40,10 +40,10 @@
 	mov (%rsp), %rsp
 
 ENTRY(efi_call)
-	FRAME_BEGIN
+	pushq %rbp
+	movq %rsp, %rbp
 	SAVE_XMM
-	mov (%rsp), %rax
-	mov 8(%rax), %rax
+	mov 16(%rbp), %rax
 	subq $48, %rsp
 	mov %r9, 32(%rsp)
 	mov %rax, 40(%rsp)
@@ -53,6 +53,6 @@ ENTRY(efi_call)
 	call *%rdi
 	addq $48, %rsp
 	RESTORE_XMM
-	FRAME_END
+	popq %rbp
 	ret
 ENDPROC(efi_call)

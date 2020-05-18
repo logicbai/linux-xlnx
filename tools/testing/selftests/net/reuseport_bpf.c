@@ -21,6 +21,7 @@
 #include <sys/epoll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #ifndef ARRAY_SIZE
@@ -111,9 +112,9 @@ static void attach_ebpf(int fd, uint16_t mod)
 	memset(&attr, 0, sizeof(attr));
 	attr.prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
 	attr.insn_cnt = ARRAY_SIZE(prog);
-	attr.insns = (uint64_t)prog;
-	attr.license = (uint64_t)bpf_license;
-	attr.log_buf = (uint64_t)bpf_log_buf;
+	attr.insns = (unsigned long) &prog;
+	attr.license = (unsigned long) &bpf_license;
+	attr.log_buf = (unsigned long) &bpf_log_buf;
 	attr.log_size = sizeof(bpf_log_buf);
 	attr.log_level = 1;
 	attr.kern_version = 0;
@@ -190,10 +191,13 @@ static void send_from(struct test_params p, uint16_t sport, char *buf,
 	struct sockaddr * const saddr = new_any_sockaddr(p.send_family, sport);
 	struct sockaddr * const daddr =
 		new_loopback_sockaddr(p.send_family, p.recv_port);
-	const int fd = socket(p.send_family, p.protocol, 0);
+	const int fd = socket(p.send_family, p.protocol, 0), one = 1;
 
 	if (fd < 0)
 		error(1, errno, "failed to create send socket");
+
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)))
+		error(1, errno, "failed to set reuseaddr");
 
 	if (bind(fd, saddr, sockaddr_size()))
 		error(1, errno, "failed to bind send socket");
@@ -351,8 +355,8 @@ static void test_filter_no_reuseport(const struct test_params p)
 	memset(&eprog, 0, sizeof(eprog));
 	eprog.prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
 	eprog.insn_cnt = ARRAY_SIZE(ecode);
-	eprog.insns = (uint64_t)ecode;
-	eprog.license = (uint64_t)bpf_license;
+	eprog.insns = (unsigned long) &ecode;
+	eprog.license = (unsigned long) &bpf_license;
 	eprog.kern_version = 0;
 
 	memset(&cprog, 0, sizeof(cprog));
@@ -431,6 +435,26 @@ void enable_fastopen(void)
 			error(1, errno, "Unable to write tcp_fastopen sysctl");
 		close(fd);
 	}
+}
+
+static struct rlimit rlim_old;
+
+static  __attribute__((constructor)) void main_ctor(void)
+{
+	getrlimit(RLIMIT_MEMLOCK, &rlim_old);
+
+	if (rlim_old.rlim_cur != RLIM_INFINITY) {
+		struct rlimit rlim_new;
+
+		rlim_new.rlim_cur = rlim_old.rlim_cur + (1UL << 20);
+		rlim_new.rlim_max = rlim_old.rlim_max + (1UL << 20);
+		setrlimit(RLIMIT_MEMLOCK, &rlim_new);
+	}
+}
+
+static __attribute__((destructor)) void main_dtor(void)
+{
+	setrlimit(RLIMIT_MEMLOCK, &rlim_old);
 }
 
 int main(void)

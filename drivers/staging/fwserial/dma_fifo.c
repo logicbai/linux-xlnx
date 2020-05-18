@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * DMA-able FIFO implementation
  *
  * Copyright (C) 2012 Peter Hurley <peter@hurleysoftware.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/kernel.h>
@@ -35,7 +26,7 @@
 /*
  * private helper fn to determine if check is in open interval (lo,hi)
  */
-static bool addr_check(unsigned check, unsigned lo, unsigned hi)
+static bool addr_check(unsigned int check, unsigned int lo, unsigned int hi)
 {
 	return check - (lo + 1) < (hi - 1) - lo;
 }
@@ -64,7 +55,7 @@ void dma_fifo_init(struct dma_fifo *fifo)
  * The 'apparent' size will be rounded up to next greater aligned size.
  * Returns 0 if no error, otherwise an error code
  */
-int dma_fifo_alloc(struct dma_fifo *fifo, int size, unsigned align,
+int dma_fifo_alloc(struct dma_fifo *fifo, int size, unsigned int align,
 		   int tx_limit, int open_limit, gfp_t gfp_mask)
 {
 	int capacity;
@@ -190,7 +181,7 @@ int dma_fifo_in(struct dma_fifo *fifo, const void *src, int n)
  */
 int dma_fifo_out_pend(struct dma_fifo *fifo, struct dma_pending *pended)
 {
-	unsigned len, n, ofs, l, limit;
+	unsigned int len, n, ofs, l, limit;
 
 	if (!fifo->data)
 		return -ENOENT;
@@ -210,7 +201,7 @@ int dma_fifo_out_pend(struct dma_fifo *fifo, struct dma_pending *pended)
 	n = len;
 	ofs = fifo->out % fifo->capacity;
 	l = fifo->capacity - ofs;
-	limit = min_t(unsigned, l, fifo->tx_limit);
+	limit = min_t(unsigned int, l, fifo->tx_limit);
 	if (n > limit) {
 		n = limit;
 		fifo->out += limit;

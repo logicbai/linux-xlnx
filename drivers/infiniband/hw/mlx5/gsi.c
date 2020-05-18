@@ -69,15 +69,6 @@ static bool mlx5_ib_deth_sqpn_cap(struct mlx5_ib_dev *dev)
 	return MLX5_CAP_GEN(dev->mdev, set_deth_sqpn);
 }
 
-static u32 next_outstanding(struct mlx5_ib_gsi_qp *gsi, u32 index)
-{
-	return ++index % gsi->cap.max_send_wr;
-}
-
-#define for_each_outstanding_wr(gsi, index) \
-	for (index = gsi->outstanding_ci; index != gsi->outstanding_pi; \
-	     index = next_outstanding(gsi, index))
-
 /* Call with gsi->lock locked */
 static void generate_completions(struct mlx5_ib_gsi_qp *gsi)
 {
@@ -85,8 +76,9 @@ static void generate_completions(struct mlx5_ib_gsi_qp *gsi)
 	struct mlx5_ib_gsi_wr *wr;
 	u32 index;
 
-	for_each_outstanding_wr(gsi, index) {
-		wr = &gsi->outstanding_wrs[index];
+	for (index = gsi->outstanding_ci; index != gsi->outstanding_pi;
+	     index++) {
+		wr = &gsi->outstanding_wrs[index % gsi->cap.max_send_wr];
 
 		if (!wr->completed)
 			break;
@@ -430,8 +422,9 @@ static int mlx5_ib_add_outstanding_wr(struct mlx5_ib_gsi_qp *gsi,
 		return -ENOMEM;
 	}
 
-	gsi_wr = &gsi->outstanding_wrs[gsi->outstanding_pi];
-	gsi->outstanding_pi = next_outstanding(gsi, gsi->outstanding_pi);
+	gsi_wr = &gsi->outstanding_wrs[gsi->outstanding_pi %
+				       gsi->cap.max_send_wr];
+	gsi->outstanding_pi++;
 
 	if (!wc) {
 		memset(&gsi_wr->wc, 0, sizeof(gsi_wr->wc));
@@ -484,8 +477,8 @@ static struct ib_qp *get_tx_qp(struct mlx5_ib_gsi_qp *gsi, struct ib_ud_wr *wr)
 	return gsi->tx_qps[qp_index];
 }
 
-int mlx5_ib_gsi_post_send(struct ib_qp *qp, struct ib_send_wr *wr,
-			  struct ib_send_wr **bad_wr)
+int mlx5_ib_gsi_post_send(struct ib_qp *qp, const struct ib_send_wr *wr,
+			  const struct ib_send_wr **bad_wr)
 {
 	struct mlx5_ib_gsi_qp *gsi = gsi_qp(qp);
 	struct ib_qp *tx_qp;
@@ -529,8 +522,8 @@ err:
 	return ret;
 }
 
-int mlx5_ib_gsi_post_recv(struct ib_qp *qp, struct ib_recv_wr *wr,
-			  struct ib_recv_wr **bad_wr)
+int mlx5_ib_gsi_post_recv(struct ib_qp *qp, const struct ib_recv_wr *wr,
+			  const struct ib_recv_wr **bad_wr)
 {
 	struct mlx5_ib_gsi_qp *gsi = gsi_qp(qp);
 

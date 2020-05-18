@@ -173,6 +173,7 @@ static const struct ath6kl_hw hw_list[] = {
 		.reserved_ram_size		= 7168,
 		.board_addr			= 0x436400,
 		.testscript_addr		= 0,
+		.uarttx_pin			= 11,
 		.flags				= 0,
 
 		.fw = {
@@ -650,6 +651,14 @@ int ath6kl_configure_target(struct ath6kl *ar)
 	if (status)
 		return status;
 
+	/* Only set the baud rate if we're actually doing debug */
+	if (ar->conf_flags & ATH6KL_CONF_UART_DEBUG) {
+		status = ath6kl_bmi_write_hi32(ar, hi_desired_baud_rate,
+					       ar->hw.uarttx_rate);
+		if (status)
+			return status;
+	}
+
 	/* Configure target refclk_hz */
 	if (ar->hw.refclk_hz != 0) {
 		status = ath6kl_bmi_write_hi32(ar, hi_refclk_hz,
@@ -701,8 +710,8 @@ static bool check_device_tree(struct ath6kl *ar)
 	for_each_compatible_node(node, NULL, "atheros,ath6kl") {
 		board_id = of_get_property(node, board_id_prop, NULL);
 		if (board_id == NULL) {
-			ath6kl_warn("No \"%s\" property on %s node.\n",
-				    board_id_prop, node->name);
+			ath6kl_warn("No \"%s\" property on %pOFn node.\n",
+				    board_id_prop, node);
 			continue;
 		}
 		snprintf(board_filename, sizeof(board_filename),
@@ -1131,7 +1140,7 @@ static int ath6kl_fetch_fw_apin(struct ath6kl *ar, const char *name)
 
 		len -= ie_len;
 		data += ie_len;
-	};
+	}
 
 	ret = 0;
 out:

@@ -1,17 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Intel SOC Telemetry Driver Header File
  * Copyright (C) 2015, Intel Corporation.
  * All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 #ifndef INTEL_TELEMETRY_H
 #define INTEL_TELEMETRY_H
@@ -99,7 +90,7 @@ struct telemetry_core_ops {
 	int (*reset_events)(void);
 };
 
-int telemetry_set_pltdata(struct telemetry_core_ops *ops,
+int telemetry_set_pltdata(const struct telemetry_core_ops *ops,
 			  struct telemetry_plt_config *pltconfig);
 
 int telemetry_clear_pltdata(void);

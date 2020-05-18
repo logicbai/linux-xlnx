@@ -8,14 +8,13 @@ Required properties:
  - reg: Memory range of the device.
  - interrupts: Should be the interrupt number associated with this module within
    the tscadc unit (<0>).
- - interrupt-parent: Should be a phandle to the tscadc unit.
  - fsl,wires: Should be '<4>' or '<5>'
 
 Optional properties:
  - fsl,pen-debounce-ns: Pen debounce time in nanoseconds.
  - fsl,pen-threshold: Pen-down threshold for the touchscreen. This is a value
    between 1 and 4096. It is the ratio between the internal reference voltage
-   and the measured voltage after the plate was precharged. Resistence between
+   and the measured voltage after the plate was precharged. Resistance between
    plates and therefore the voltage decreases with pressure so that a smaller
    value is equivalent to a higher pressure.
  - fsl,settling-time-ns: Settling time in nanoseconds. The settling time is before

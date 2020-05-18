@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for ISSI IS31FL32xx family of I2C LED controllers
  *
  * Copyright 2015 Allworx Corp.
- *
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Datasheets:
  *   http://www.issi.com/US/product-analog-fxled-driver.shtml
@@ -328,12 +324,6 @@ static int is31fl32xx_init_regs(struct is31fl32xx_priv *priv)
 	return 0;
 }
 
-static inline size_t sizeof_is31fl32xx_priv(int num_leds)
-{
-	return sizeof(struct is31fl32xx_priv) +
-		      (sizeof(struct is31fl32xx_led_data) * num_leds);
-}
-
 static int is31fl32xx_parse_child_dt(const struct device *dev,
 				     const struct device_node *child,
 				     struct is31fl32xx_led_data *led_data)
@@ -348,8 +338,8 @@ static int is31fl32xx_parse_child_dt(const struct device *dev,
 	ret = of_property_read_u32(child, "reg", &reg);
 	if (ret || reg < 1 || reg > led_data->priv->cdef->channels) {
 		dev_err(dev,
-			"Child node %s does not have a valid reg property\n",
-			child->full_name);
+			"Child node %pOF does not have a valid reg property\n",
+			child);
 		return -EINVAL;
 	}
 	led_data->channel = reg;
@@ -422,7 +412,7 @@ err:
 	return ret;
 }
 
-static const struct of_device_id of_is31fl31xx_match[] = {
+static const struct of_device_id of_is31fl32xx_match[] = {
 	{ .compatible = "issi,is31fl3236", .data = &is31fl3236_cdef, },
 	{ .compatible = "issi,is31fl3235", .data = &is31fl3235_cdef, },
 	{ .compatible = "issi,is31fl3218", .data = &is31fl3218_cdef, },
@@ -432,7 +422,7 @@ static const struct of_device_id of_is31fl31xx_match[] = {
 	{},
 };
 
-MODULE_DEVICE_TABLE(of, of_is31fl31xx_match);
+MODULE_DEVICE_TABLE(of, of_is31fl32xx_match);
 
 static int is31fl32xx_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
@@ -444,7 +434,7 @@ static int is31fl32xx_probe(struct i2c_client *client,
 	int count;
 	int ret = 0;
 
-	of_dev_id = of_match_device(of_is31fl31xx_match, dev);
+	of_dev_id = of_match_device(of_is31fl32xx_match, dev);
 	if (!of_dev_id)
 		return -EINVAL;
 
@@ -454,7 +444,7 @@ static int is31fl32xx_probe(struct i2c_client *client,
 	if (!count)
 		return -EINVAL;
 
-	priv = devm_kzalloc(dev, sizeof_is31fl32xx_priv(count),
+	priv = devm_kzalloc(dev, struct_size(priv, leds, count),
 			    GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
@@ -482,23 +472,29 @@ static int is31fl32xx_remove(struct i2c_client *client)
 }
 
 /*
- * i2c-core requires that id_table be non-NULL, even though
- * it is not used for DeviceTree based instantiation.
+ * i2c-core (and modalias) requires that id_table be properly filled,
+ * even though it is not used for DeviceTree based instantiation.
  */
-static const struct i2c_device_id is31fl31xx_id[] = {
+static const struct i2c_device_id is31fl32xx_id[] = {
+	{ "is31fl3236" },
+	{ "is31fl3235" },
+	{ "is31fl3218" },
+	{ "sn3218" },
+	{ "is31fl3216" },
+	{ "sn3216" },
 	{},
 };
 
-MODULE_DEVICE_TABLE(i2c, is31fl31xx_id);
+MODULE_DEVICE_TABLE(i2c, is31fl32xx_id);
 
 static struct i2c_driver is31fl32xx_driver = {
 	.driver = {
 		.name	= "is31fl32xx",
-		.of_match_table = of_is31fl31xx_match,
+		.of_match_table = of_is31fl32xx_match,
 	},
 	.probe		= is31fl32xx_probe,
 	.remove		= is31fl32xx_remove,
-	.id_table	= is31fl31xx_id,
+	.id_table	= is31fl32xx_id,
 };
 
 module_i2c_driver(is31fl32xx_driver);

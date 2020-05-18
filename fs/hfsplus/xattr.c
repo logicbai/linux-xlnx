@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/hfsplus/xattr.c
  *
@@ -7,10 +8,8 @@
  */
 
 #include "hfsplus_fs.h"
-#include <linux/posix_acl_xattr.h>
 #include <linux/nls.h>
 #include "xattr.h"
-#include "acl.h"
 
 static int hfsplus_removexattr(struct inode *inode, const char *name);
 
@@ -18,10 +17,6 @@ const struct xattr_handler *hfsplus_xattr_handlers[] = {
 	&hfsplus_xattr_osx_handler,
 	&hfsplus_xattr_user_handler,
 	&hfsplus_xattr_trusted_handler,
-#ifdef CONFIG_HFSPLUS_FS_POSIX_ACL
-	&posix_acl_access_xattr_handler,
-	&posix_acl_default_xattr_handler,
-#endif
 	&hfsplus_xattr_security_handler,
 	NULL
 };
@@ -412,7 +407,7 @@ static int copy_name(char *buffer, const char *xattr_name, int name_len)
 	int offset = 0;
 
 	if (!is_known_namespace(xattr_name)) {
-		strncpy(buffer, XATTR_MAC_OSX_PREFIX, XATTR_MAC_OSX_PREFIX_LEN);
+		memcpy(buffer, XATTR_MAC_OSX_PREFIX, XATTR_MAC_OSX_PREFIX_LEN);
 		offset += XATTR_MAC_OSX_PREFIX_LEN;
 		len += XATTR_MAC_OSX_PREFIX_LEN;
 	}
@@ -424,7 +419,7 @@ static int copy_name(char *buffer, const char *xattr_name, int name_len)
 	return len;
 }
 
-int hfsplus_setxattr(struct dentry *dentry, const char *name,
+int hfsplus_setxattr(struct inode *inode, const char *name,
 		     const void *value, size_t size, int flags,
 		     const char *prefix, size_t prefixlen)
 {
@@ -437,8 +432,7 @@ int hfsplus_setxattr(struct dentry *dentry, const char *name,
 		return -ENOMEM;
 	strcpy(xattr_name, prefix);
 	strcpy(xattr_name + prefixlen, name);
-	res = __hfsplus_setxattr(d_inode(dentry), xattr_name, value, size,
-				 flags);
+	res = __hfsplus_setxattr(inode, xattr_name, value, size, flags);
 	kfree(xattr_name);
 	return res;
 }
@@ -579,7 +573,7 @@ failed_getxattr_init:
 	return res;
 }
 
-ssize_t hfsplus_getxattr(struct dentry *dentry, const char *name,
+ssize_t hfsplus_getxattr(struct inode *inode, const char *name,
 			 void *value, size_t size,
 			 const char *prefix, size_t prefixlen)
 {
@@ -594,7 +588,7 @@ ssize_t hfsplus_getxattr(struct dentry *dentry, const char *name,
 	strcpy(xattr_name, prefix);
 	strcpy(xattr_name + prefixlen, name);
 
-	res = __hfsplus_getxattr(d_inode(dentry), xattr_name, value, size);
+	res = __hfsplus_getxattr(inode, xattr_name, value, size);
 	kfree(xattr_name);
 	return res;
 
@@ -844,8 +838,8 @@ end_removexattr:
 }
 
 static int hfsplus_osx_getxattr(const struct xattr_handler *handler,
-				struct dentry *dentry, const char *name,
-				void *buffer, size_t size)
+				struct dentry *unused, struct inode *inode,
+				const char *name, void *buffer, size_t size)
 {
 	/*
 	 * Don't allow retrieving properly prefixed attributes
@@ -860,12 +854,13 @@ static int hfsplus_osx_getxattr(const struct xattr_handler *handler,
 	 * creates), so we pass the name through unmodified (after
 	 * ensuring it doesn't conflict with another namespace).
 	 */
-	return __hfsplus_getxattr(d_inode(dentry), name, buffer, size);
+	return __hfsplus_getxattr(inode, name, buffer, size);
 }
 
 static int hfsplus_osx_setxattr(const struct xattr_handler *handler,
-				struct dentry *dentry, const char *name,
-				const void *buffer, size_t size, int flags)
+				struct dentry *unused, struct inode *inode,
+				const char *name, const void *buffer,
+				size_t size, int flags)
 {
 	/*
 	 * Don't allow setting properly prefixed attributes
@@ -880,7 +875,7 @@ static int hfsplus_osx_setxattr(const struct xattr_handler *handler,
 	 * creates), so we pass the name through unmodified (after
 	 * ensuring it doesn't conflict with another namespace).
 	 */
-	return __hfsplus_setxattr(d_inode(dentry), name, buffer, size, flags);
+	return __hfsplus_setxattr(inode, name, buffer, size, flags);
 }
 
 const struct xattr_handler hfsplus_xattr_osx_handler = {

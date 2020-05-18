@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * MXC6255 - MEMSIC orientation sensing accelerometer
  *
  * Copyright (c) 2015, Intel Corporation.
- *
- * This file is subject to the terms and conditions of version 2 of
- * the GNU General Public License.  See the file COPYING in the main
- * directory of this archive for more details.
  *
  * IIO driver for MXC6255 (7-bit I2C slave address 0x15).
  */
@@ -78,7 +75,6 @@ static int mxc6255_read_raw(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info mxc6255_info = {
-	.driver_module	= THIS_MODULE,
 	.read_raw	= mxc6255_read_raw,
 };
 
@@ -154,7 +150,7 @@ static int mxc6255_probe(struct i2c_client *client,
 		return ret;
 	}
 
-	if (chip_id != MXC6255_CHIP_ID) {
+	if ((chip_id & 0x1f) != MXC6255_CHIP_ID) {
 		dev_err(&client->dev, "Invalid chip id %x\n", chip_id);
 		return -ENODEV;
 	}
@@ -171,12 +167,14 @@ static int mxc6255_probe(struct i2c_client *client,
 }
 
 static const struct acpi_device_id mxc6255_acpi_match[] = {
+	{"MXC6225",	0},
 	{"MXC6255",	0},
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, mxc6255_acpi_match);
 
 static const struct i2c_device_id mxc6255_id[] = {
+	{"mxc6225",	0},
 	{"mxc6255",	0},
 	{ }
 };

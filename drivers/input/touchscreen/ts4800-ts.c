@@ -118,6 +118,13 @@ static int ts4800_parse_dt(struct platform_device *pdev,
 		return -ENODEV;
 	}
 
+	ts->regmap = syscon_node_to_regmap(syscon_np);
+	of_node_put(syscon_np);
+	if (IS_ERR(ts->regmap)) {
+		dev_err(dev, "cannot get parent's regmap\n");
+		return PTR_ERR(ts->regmap);
+	}
+
 	error = of_property_read_u32_index(np, "syscon", 1, &reg);
 	if (error < 0) {
 		dev_err(dev, "no offset in syscon\n");
@@ -134,12 +141,6 @@ static int ts4800_parse_dt(struct platform_device *pdev,
 
 	ts->bit = BIT(bit);
 
-	ts->regmap = syscon_node_to_regmap(syscon_np);
-	if (IS_ERR(ts->regmap)) {
-		dev_err(dev, "cannot get parent's regmap\n");
-		return PTR_ERR(ts->regmap);
-	}
-
 	return 0;
 }
 
@@ -147,7 +148,6 @@ static int ts4800_ts_probe(struct platform_device *pdev)
 {
 	struct input_polled_dev *poll_dev;
 	struct ts4800_ts *ts;
-	struct resource *res;
 	int error;
 
 	ts = devm_kzalloc(&pdev->dev, sizeof(*ts), GFP_KERNEL);
@@ -158,8 +158,7 @@ static int ts4800_ts_probe(struct platform_device *pdev)
 	if (error)
 		return error;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ts->base = devm_ioremap_resource(&pdev->dev, res);
+	ts->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(ts->base))
 		return PTR_ERR(ts->base);
 

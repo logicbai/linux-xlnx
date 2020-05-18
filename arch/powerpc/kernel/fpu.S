@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  *  FPU support code, moved here from head.S so that it can be used
  *  by chips which use other head-whatever.S files.
@@ -6,12 +7,6 @@
  *    Copyright (C) 1996 Cort Dougan <cort@cs.nmt.edu>
  *    Copyright (C) 1996 Paul Mackerras.
  *    Copyright (C) 1997 Dan Malek (dmalek@jlc.net).
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
- *
  */
 
 #include <asm/reg.h>
@@ -24,6 +19,9 @@
 #include <asm/ppc_asm.h>
 #include <asm/asm-offsets.h>
 #include <asm/ptrace.h>
+#include <asm/export.h>
+#include <asm/asm-compat.h>
+#include <asm/feature-fixups.h>
 
 #ifdef CONFIG_VSX
 #define __REST_32FPVSRS(n,c,base)					\
@@ -50,32 +48,6 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
 #define REST_32FPVSRS(n,c,base) __REST_32FPVSRS(n,__REG_##c,__REG_##base)
 #define SAVE_32FPVSRS(n,c,base) __SAVE_32FPVSRS(n,__REG_##c,__REG_##base)
 
-#ifdef CONFIG_PPC_TRANSACTIONAL_MEM
-/* void do_load_up_transact_fpu(struct thread_struct *thread)
- *
- * This is similar to load_up_fpu but for the transactional version of the FP
- * register set.  It doesn't mess with the task MSR or valid flags.
- * Furthermore, we don't do lazy FP with TM currently.
- */
-_GLOBAL(do_load_up_transact_fpu)
-	mfmsr	r6
-	ori	r5,r6,MSR_FP
-#ifdef CONFIG_VSX
-BEGIN_FTR_SECTION
-	oris	r5,r5,MSR_VSX@h
-END_FTR_SECTION_IFSET(CPU_FTR_VSX)
-#endif
-	SYNC
-	MTMSRD(r5)
-
-	addi	r7,r3,THREAD_TRANSACT_FPSTATE
-	lfd	fr0,FPSTATE_FPSCR(r7)
-	MTFSF_L(fr0)
-	REST_32FPVSRS(0, R4, R7)
-
-	blr
-#endif /* CONFIG_PPC_TRANSACTIONAL_MEM */
-
 /*
  * Load state from memory into FP registers including FPSCR.
  * Assumes the caller has enabled FP in the MSR.
@@ -85,6 +57,8 @@ _GLOBAL(load_fp_state)
 	MTFSF_L(fr0)
 	REST_32FPVSRS(0, R4, R3)
 	blr
+EXPORT_SYMBOL(load_fp_state)
+_ASM_NOKPROBE_SYMBOL(load_fp_state); /* used by restore_math */
 
 /*
  * Store FP state into memory, including FPSCR
@@ -95,6 +69,7 @@ _GLOBAL(store_fp_state)
 	mffs	fr0
 	stfd	fr0,FPSTATE_FPSCR(r3)
 	blr
+EXPORT_SYMBOL(store_fp_state)
 
 /*
  * This task wants to use the FPU now.

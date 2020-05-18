@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright IBM Corp. 2012
  *
@@ -11,6 +12,8 @@
 #include <linux/kernel.h>
 #include <linux/stat.h>
 #include <linux/pci.h>
+
+#include <asm/sclp.h>
 
 #define zpci_attr(name, fmt, member)					\
 static ssize_t name##_show(struct device *dev,				\
@@ -33,6 +36,15 @@ zpci_attr(segment0, "0x%02x\n", pfip[0]);
 zpci_attr(segment1, "0x%02x\n", pfip[1]);
 zpci_attr(segment2, "0x%02x\n", pfip[2]);
 zpci_attr(segment3, "0x%02x\n", pfip[3]);
+
+static ssize_t mio_enabled_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct zpci_dev *zdev = to_zpci(to_pci_dev(dev));
+
+	return sprintf(buf, zpci_use_mio(zdev) ? "1\n" : "0\n");
+}
+static DEVICE_ATTR_RO(mio_enabled);
 
 static ssize_t recover_store(struct device *dev, struct device_attribute *attr,
 			     const char *buf, size_t count)
@@ -77,8 +89,29 @@ static ssize_t util_string_read(struct file *filp, struct kobject *kobj,
 				       sizeof(zdev->util_str));
 }
 static BIN_ATTR_RO(util_string, CLP_UTIL_STR_LEN);
+
+static ssize_t report_error_write(struct file *filp, struct kobject *kobj,
+				  struct bin_attribute *attr, char *buf,
+				  loff_t off, size_t count)
+{
+	struct zpci_report_error_header *report = (void *) buf;
+	struct device *dev = kobj_to_dev(kobj);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct zpci_dev *zdev = to_zpci(pdev);
+	int ret;
+
+	if (off || (count < sizeof(*report)))
+		return -EINVAL;
+
+	ret = sclp_pci_report(report, zdev->fh, zdev->fid);
+
+	return ret ? ret : count;
+}
+static BIN_ATTR(report_error, S_IWUSR, NULL, report_error_write, PAGE_SIZE);
+
 static struct bin_attribute *zpci_bin_attrs[] = {
 	&bin_attr_util_string,
+	&bin_attr_report_error,
 	NULL,
 };
 
@@ -91,6 +124,7 @@ static struct attribute *zpci_dev_attrs[] = {
 	&dev_attr_vfn.attr,
 	&dev_attr_uid.attr,
 	&dev_attr_recover.attr,
+	&dev_attr_mio_enabled.attr,
 	NULL,
 };
 static struct attribute_group zpci_attr_group = {

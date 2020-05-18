@@ -1,13 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * This file contains assembly-language implementations
  * of IP-style 1's complement checksum routines.
  *	
  *    Copyright (C) 1995-1996 Gary Thomas (gdt@linuxppc.org)
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  *
  * Severely hacked about by Paul Mackerras (paulus@cs.anu.edu.au).
  */
@@ -17,6 +13,7 @@
 #include <asm/cache.h>
 #include <asm/errno.h>
 #include <asm/ppc_asm.h>
+#include <asm/export.h>
 
 	.text
 
@@ -46,16 +43,25 @@ _GLOBAL(__csum_partial)
 	bdnz	2b
 21:	srwi.	r6,r4,4		/* # blocks of 4 words to do */
 	beq	3f
+	lwz	r0,4(r3)
 	mtctr	r6
-22:	lwz	r0,4(r3)
 	lwz	r6,8(r3)
-	lwz	r7,12(r3)
-	lwzu	r8,16(r3)
 	adde	r5,r5,r0
+	lwz	r7,12(r3)
 	adde	r5,r5,r6
+	lwzu	r8,16(r3)
 	adde	r5,r5,r7
+	bdz	23f
+22:	lwz	r0,4(r3)
 	adde	r5,r5,r8
+	lwz	r6,8(r3)
+	adde	r5,r5,r0
+	lwz	r7,12(r3)
+	adde	r5,r5,r6
+	lwzu	r8,16(r3)
+	adde	r5,r5,r7
 	bdnz	22b
+23:	adde	r5,r5,r8
 3:	andi.	r0,r4,2
 	beq+	4f
 	lhz	r0,4(r3)
@@ -68,6 +74,7 @@ _GLOBAL(__csum_partial)
 	adde	r5,r5,r0
 5:	addze	r3,r5		/* add in final carry */
 	blr
+EXPORT_SYMBOL(__csum_partial)
 
 /*
  * Computes the checksum of a memory block at src, length len,
@@ -101,17 +108,14 @@ _GLOBAL(__csum_partial)
 	adde	r12,r12,r10
 
 #define CSUM_COPY_16_BYTES_EXCODE(n)		\
-.section __ex_table,"a";		\
-	.align	2;			\
-	.long	8 ## n ## 0b,src_error;	\
-	.long	8 ## n ## 1b,src_error;	\
-	.long	8 ## n ## 2b,src_error;	\
-	.long	8 ## n ## 3b,src_error;	\
-	.long	8 ## n ## 4b,dst_error;	\
-	.long	8 ## n ## 5b,dst_error;	\
-	.long	8 ## n ## 6b,dst_error;	\
-	.long	8 ## n ## 7b,dst_error;	\
-	.text
+	EX_TABLE(8 ## n ## 0b, src_error);	\
+	EX_TABLE(8 ## n ## 1b, src_error);	\
+	EX_TABLE(8 ## n ## 2b, src_error);	\
+	EX_TABLE(8 ## n ## 3b, src_error);	\
+	EX_TABLE(8 ## n ## 4b, dst_error);	\
+	EX_TABLE(8 ## n ## 5b, dst_error);	\
+	EX_TABLE(8 ## n ## 6b, dst_error);	\
+	EX_TABLE(8 ## n ## 7b, dst_error);
 
 	.text
 	.stabs	"arch/powerpc/lib/",N_SO,0,0,0f
@@ -127,17 +131,19 @@ _GLOBAL(csum_partial_copy_generic)
 	stw	r7,12(r1)
 	stw	r8,8(r1)
 
-	andi.	r0,r4,1			/* is destination address even ? */
-	cmplwi	cr7,r0,0
 	addic	r12,r6,0
 	addi	r6,r4,-4
 	neg	r0,r4
 	addi	r4,r3,-4
 	andi.	r0,r0,CACHELINE_MASK	/* # bytes to start of cache line */
+	crset	4*cr7+eq
 	beq	58f
 
 	cmplw	0,r5,r0			/* is this more than total to do? */
 	blt	63f			/* if not much to do */
+	rlwinm	r7,r6,3,0x8
+	rlwnm	r12,r12,r7,0,31	/* odd destination address: rotate one byte */
+	cmplwi	cr7,r7,0	/* is destination address even ? */
 	andi.	r8,r0,3			/* get it word-aligned first */
 	mtctr	r8
 	beq+	61f
@@ -237,7 +243,7 @@ _GLOBAL(csum_partial_copy_generic)
 66:	addze	r3,r12
 	addi	r1,r1,16
 	beqlr+	cr7
-	rlwinm	r3,r3,8,0,31	/* swap bytes for odd destination */
+	rlwinm	r3,r3,8,0,31	/* odd destination address: rotate one byte */
 	blr
 
 /* read fault */
@@ -259,14 +265,11 @@ dst_error:
 	stw	r0,0(r8)
 	blr
 
-	.section __ex_table,"a"
-	.align	2
-	.long	70b,src_error
-	.long	71b,dst_error
-	.long	72b,src_error
-	.long	73b,dst_error
-	.long	54b,dst_error
-	.text
+	EX_TABLE(70b, src_error);
+	EX_TABLE(71b, dst_error);
+	EX_TABLE(72b, src_error);
+	EX_TABLE(73b, dst_error);
+	EX_TABLE(54b, dst_error);
 
 /*
  * this stuff handles faults in the cacheline loop and branches to either
@@ -287,11 +290,44 @@ dst_error:
 #endif
 #endif
 
-	.section __ex_table,"a"
-	.align	2
-	.long	30b,src_error
-	.long	31b,dst_error
-	.long	40b,src_error
-	.long	41b,dst_error
-	.long	50b,src_error
-	.long	51b,dst_error
+	EX_TABLE(30b, src_error);
+	EX_TABLE(31b, dst_error);
+	EX_TABLE(40b, src_error);
+	EX_TABLE(41b, dst_error);
+	EX_TABLE(50b, src_error);
+	EX_TABLE(51b, dst_error);
+
+EXPORT_SYMBOL(csum_partial_copy_generic)
+
+/*
+ * __sum16 csum_ipv6_magic(const struct in6_addr *saddr,
+ *			   const struct in6_addr *daddr,
+ *			   __u32 len, __u8 proto, __wsum sum)
+ */
+
+_GLOBAL(csum_ipv6_magic)
+	lwz	r8, 0(r3)
+	lwz	r9, 4(r3)
+	addc	r0, r7, r8
+	lwz	r10, 8(r3)
+	adde	r0, r0, r9
+	lwz	r11, 12(r3)
+	adde	r0, r0, r10
+	lwz	r8, 0(r4)
+	adde	r0, r0, r11
+	lwz	r9, 4(r4)
+	adde	r0, r0, r8
+	lwz	r10, 8(r4)
+	adde	r0, r0, r9
+	lwz	r11, 12(r4)
+	adde	r0, r0, r10
+	add	r5, r5, r6	/* assumption: len + proto doesn't carry */
+	adde	r0, r0, r11
+	adde	r0, r0, r5
+	addze	r0, r0
+	rotlwi	r3, r0, 16
+	add	r3, r0, r3
+	not	r3, r3
+	rlwinm	r3, r3, 16, 16, 31
+	blr
+EXPORT_SYMBOL(csum_ipv6_magic)

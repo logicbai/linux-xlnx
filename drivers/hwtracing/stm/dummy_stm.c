@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * A dummy STM device for stm/stm_source class testing.
  * Copyright (c) 2014, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  *
  * STM class implements generic infrastructure for  System Trace Module devices
  * as defined in MIPI STPv2 specification.
@@ -20,8 +12,9 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/stm.h>
+#include <uapi/linux/stm.h>
 
-static ssize_t
+static ssize_t notrace
 dummy_stm_packet(struct stm_data *stm_data, unsigned int master,
 		 unsigned int channel, unsigned int packet, unsigned int flags,
 		 unsigned int size, const unsigned char *payload)
@@ -46,13 +39,23 @@ static struct stm_data dummy_stm[DUMMY_STM_MAX];
 
 static int nr_dummies = 4;
 
-module_param(nr_dummies, int, 0600);
-
-static unsigned int dummy_stm_nr;
+module_param(nr_dummies, int, 0400);
 
 static unsigned int fail_mode;
 
 module_param(fail_mode, int, 0600);
+
+static unsigned int master_min;
+
+module_param(master_min, int, 0400);
+
+static unsigned int master_max = STP_MASTER_MAX;
+
+module_param(master_max, int, 0400);
+
+static unsigned int nr_channels = STP_CHANNEL_MAX;
+
+module_param(nr_channels, int, 0400);
 
 static int dummy_stm_link(struct stm_data *data, unsigned int master,
 			  unsigned int channel)
@@ -65,19 +68,24 @@ static int dummy_stm_link(struct stm_data *data, unsigned int master,
 
 static int dummy_stm_init(void)
 {
-	int i, ret = -ENOMEM, __nr_dummies = ACCESS_ONCE(nr_dummies);
+	int i, ret = -ENOMEM;
 
-	if (__nr_dummies < 0 || __nr_dummies > DUMMY_STM_MAX)
+	if (nr_dummies < 0 || nr_dummies > DUMMY_STM_MAX)
 		return -EINVAL;
 
-	for (i = 0; i < __nr_dummies; i++) {
+	if (master_min > master_max ||
+	    master_max > STP_MASTER_MAX ||
+	    nr_channels > STP_CHANNEL_MAX)
+		return -EINVAL;
+
+	for (i = 0; i < nr_dummies; i++) {
 		dummy_stm[i].name = kasprintf(GFP_KERNEL, "dummy_stm.%d", i);
 		if (!dummy_stm[i].name)
 			goto fail_unregister;
 
-		dummy_stm[i].sw_start		= 0x0000;
-		dummy_stm[i].sw_end		= 0xffff;
-		dummy_stm[i].sw_nchannels	= 0xffff;
+		dummy_stm[i].sw_start		= master_min;
+		dummy_stm[i].sw_end		= master_max;
+		dummy_stm[i].sw_nchannels	= nr_channels;
 		dummy_stm[i].packet		= dummy_stm_packet;
 		dummy_stm[i].link		= dummy_stm_link;
 
@@ -85,8 +93,6 @@ static int dummy_stm_init(void)
 		if (ret)
 			goto fail_free;
 	}
-
-	dummy_stm_nr = __nr_dummies;
 
 	return 0;
 
@@ -105,7 +111,7 @@ static void dummy_stm_exit(void)
 {
 	int i;
 
-	for (i = 0; i < dummy_stm_nr; i++) {
+	for (i = 0; i < nr_dummies; i++) {
 		stm_unregister_device(&dummy_stm[i]);
 		kfree(dummy_stm[i].name);
 	}

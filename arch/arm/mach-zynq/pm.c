@@ -1,28 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Zynq power management
  *
  *  Copyright (C) 2012 - 2014 Xilinx
  *
  *  Sören Brinkmann <soren.brinkmann@xilinx.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/clk/zynq.h>
 #include <linux/genalloc.h>
 #include <linux/suspend.h>
 #include <asm/cacheflush.h>
+#include <asm/fncpy.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/mach/map.h>
 #include <asm/suspend.h>
@@ -42,7 +31,7 @@
 static void __iomem *ddrc_base;
 
 #ifdef CONFIG_SUSPEND
-static void __iomem *ocm_base;
+static int (*zynq_suspend_ptr)(void __iomem *, void __iomem *);
 
 static int zynq_pm_prepare_late(void)
 {
@@ -57,15 +46,12 @@ static void zynq_pm_wake(void)
 static int zynq_pm_suspend(unsigned long arg)
 {
 	u32 reg;
-	int (*zynq_suspend_ptr)(void __iomem *, void __iomem *) =
-		(__force void *)ocm_base;
 	int do_ddrpll_bypass = 1;
 
 	/* Topswitch clock stop disable */
 	zynq_clk_topswitch_disable();
 
-
-	if (!ocm_base || !ddrc_base) {
+	if (!zynq_suspend_ptr || !ddrc_base) {
 		do_ddrpll_bypass = 0;
 	} else {
 		/* enable DDRC self-refresh mode */
@@ -182,7 +168,8 @@ static void __iomem *zynq_pm_remap_ocm(void)
 
 static void zynq_pm_suspend_init(void)
 {
-	ocm_base = zynq_pm_remap_ocm();
+	void __iomem *ocm_base = zynq_pm_remap_ocm();
+
 	if (!ocm_base) {
 		pr_warn("%s: Unable to map OCM.\n", __func__);
 	} else {
@@ -191,10 +178,9 @@ static void zynq_pm_suspend_init(void)
 		 * needs to run from OCM as DRAM may no longer be available
 		 * when the PLL is stopped.
 		 */
-		memcpy((__force void *)ocm_base, &zynq_sys_suspend,
-			zynq_sys_suspend_sz);
-		flush_icache_range((unsigned long)ocm_base,
-			(unsigned long)(ocm_base) + zynq_sys_suspend_sz);
+		zynq_suspend_ptr = fncpy((__force void *)ocm_base,
+					 (__force void *)&zynq_sys_suspend,
+					 zynq_sys_suspend_sz);
 	}
 
 	suspend_set_ops(&zynq_pm_ops);

@@ -1,13 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/cpufreq/cpufreq_powersave.c
  *
  * Copyright (C) 2002 - 2003 Dominik Brodowski <linux@brodo.de>
- *
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -16,26 +11,15 @@
 #include <linux/init.h>
 #include <linux/module.h>
 
-static int cpufreq_governor_powersave(struct cpufreq_policy *policy,
-					unsigned int event)
+static void cpufreq_gov_powersave_limits(struct cpufreq_policy *policy)
 {
-	switch (event) {
-	case CPUFREQ_GOV_START:
-	case CPUFREQ_GOV_LIMITS:
-		pr_debug("setting to %u kHz because of event %u\n",
-							policy->min, event);
-		__cpufreq_driver_target(policy, policy->min,
-						CPUFREQ_RELATION_L);
-		break;
-	default:
-		break;
-	}
-	return 0;
+	pr_debug("setting to %u kHz\n", policy->min);
+	__cpufreq_driver_target(policy, policy->min, CPUFREQ_RELATION_L);
 }
 
 static struct cpufreq_governor cpufreq_gov_powersave = {
 	.name		= "powersave",
-	.governor	= cpufreq_governor_powersave,
+	.limits		= cpufreq_gov_powersave_limits,
 	.owner		= THIS_MODULE,
 };
 

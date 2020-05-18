@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Serial driver for the amiga builtin port.
  *
@@ -127,7 +128,7 @@ static struct serial_state rs_table[1];
 
 #define NR_PORTS ARRAY_SIZE(rs_table)
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define serial_isroot()	(capable(CAP_SYS_ADMIN))
 
@@ -398,7 +399,7 @@ static void check_modem_status(struct serial_state *info)
 		wake_up_interruptible(&port->delta_msr_wait);
 	}
 
-	if ((port->flags & ASYNC_CHECK_CD) && (dstatus & SER_DCD)) {
+	if (tty_port_check_carrier(port) && (dstatus & SER_DCD)) {
 #if (defined(SERIAL_DEBUG_OPEN) || defined(SERIAL_DEBUG_INTR))
 		printk("ttyS%d CD now %s...", info->line,
 		       (!(status & SER_DCD)) ? "on" : "off");
@@ -525,7 +526,7 @@ static int startup(struct tty_struct *tty, struct serial_state *info)
 
 	local_irq_save(flags);
 
-	if (port->flags & ASYNC_INITIALIZED) {
+	if (tty_port_initialized(port)) {
 		free_page(page);
 		goto errout;
 	}
@@ -570,23 +571,11 @@ static int startup(struct tty_struct *tty, struct serial_state *info)
 	info->xmit.head = info->xmit.tail = 0;
 
 	/*
-	 * Set up the tty->alt_speed kludge
-	 */
-	if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_HI)
-		tty->alt_speed = 57600;
-	if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_VHI)
-		tty->alt_speed = 115200;
-	if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_SHI)
-		tty->alt_speed = 230400;
-	if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_WARP)
-		tty->alt_speed = 460800;
-
-	/*
 	 * and set the speed of the serial port
 	 */
 	change_speed(tty, info, NULL);
 
-	port->flags |= ASYNC_INITIALIZED;
+	tty_port_set_initialized(port, 1);
 	local_irq_restore(flags);
 	return 0;
 
@@ -604,7 +593,7 @@ static void shutdown(struct tty_struct *tty, struct serial_state *info)
 	unsigned long	flags;
 	struct serial_state *state;
 
-	if (!(info->tport.flags & ASYNC_INITIALIZED))
+	if (!tty_port_initialized(&info->tport))
 		return;
 
 	state = info;
@@ -645,7 +634,7 @@ static void shutdown(struct tty_struct *tty, struct serial_state *info)
 
 	set_bit(TTY_IO_ERROR, &tty->flags);
 
-	info->tport.flags &= ~ASYNC_INITIALIZED;
+	tty_port_set_initialized(&info->tport, 0);
 	local_irq_restore(flags);
 }
 
@@ -727,17 +716,12 @@ static void change_speed(struct tty_struct *tty, struct serial_state *info,
 	info->IER &= ~UART_IER_MSI;
 	if (port->flags & ASYNC_HARDPPS_CD)
 		info->IER |= UART_IER_MSI;
-	if (cflag & CRTSCTS) {
-		port->flags |= ASYNC_CTS_FLOW;
+	tty_port_set_cts_flow(port, cflag & CRTSCTS);
+	if (cflag & CRTSCTS)
 		info->IER |= UART_IER_MSI;
-	} else
-		port->flags &= ~ASYNC_CTS_FLOW;
-	if (cflag & CLOCAL)
-		port->flags &= ~ASYNC_CHECK_CD;
-	else {
-		port->flags |= ASYNC_CHECK_CD;
+	tty_port_set_check_carrier(port, ~cflag & CLOCAL);
+	if (~cflag & CLOCAL)
 		info->IER |= UART_IER_MSI;
-	}
 	/* TBD:
 	 * Does clearing IER_MSI imply that we should disable the VBL interrupt ?
 	 */
@@ -1012,65 +996,55 @@ static void rs_unthrottle(struct tty_struct * tty)
  * ------------------------------------------------------------
  */
 
-static int get_serial_info(struct tty_struct *tty, struct serial_state *state,
-			   struct serial_struct __user * retinfo)
+static int get_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 {
-	struct serial_struct tmp;
-   
-	if (!retinfo)
-		return -EFAULT;
-	memset(&tmp, 0, sizeof(tmp));
+	struct serial_state *state = tty->driver_data;
+
 	tty_lock(tty);
-	tmp.line = tty->index;
-	tmp.port = state->port;
-	tmp.flags = state->tport.flags;
-	tmp.xmit_fifo_size = state->xmit_fifo_size;
-	tmp.baud_base = state->baud_base;
-	tmp.close_delay = state->tport.close_delay;
-	tmp.closing_wait = state->tport.closing_wait;
-	tmp.custom_divisor = state->custom_divisor;
+	ss->line = tty->index;
+	ss->port = state->port;
+	ss->flags = state->tport.flags;
+	ss->xmit_fifo_size = state->xmit_fifo_size;
+	ss->baud_base = state->baud_base;
+	ss->close_delay = state->tport.close_delay;
+	ss->closing_wait = state->tport.closing_wait;
+	ss->custom_divisor = state->custom_divisor;
 	tty_unlock(tty);
-	if (copy_to_user(retinfo,&tmp,sizeof(*retinfo)))
-		return -EFAULT;
 	return 0;
 }
 
-static int set_serial_info(struct tty_struct *tty, struct serial_state *state,
-			   struct serial_struct __user * new_info)
+static int set_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 {
+	struct serial_state *state = tty->driver_data;
 	struct tty_port *port = &state->tport;
-	struct serial_struct new_serial;
 	bool change_spd;
 	int 			retval = 0;
 
-	if (copy_from_user(&new_serial,new_info,sizeof(new_serial)))
-		return -EFAULT;
-
 	tty_lock(tty);
-	change_spd = ((new_serial.flags ^ port->flags) & ASYNC_SPD_MASK) ||
-		new_serial.custom_divisor != state->custom_divisor;
-	if (new_serial.irq || new_serial.port != state->port ||
-			new_serial.xmit_fifo_size != state->xmit_fifo_size) {
+	change_spd = ((ss->flags ^ port->flags) & ASYNC_SPD_MASK) ||
+		ss->custom_divisor != state->custom_divisor;
+	if (ss->irq || ss->port != state->port ||
+			ss->xmit_fifo_size != state->xmit_fifo_size) {
 		tty_unlock(tty);
 		return -EINVAL;
 	}
   
 	if (!serial_isroot()) {
-		if ((new_serial.baud_base != state->baud_base) ||
-		    (new_serial.close_delay != port->close_delay) ||
-		    (new_serial.xmit_fifo_size != state->xmit_fifo_size) ||
-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+		if ((ss->baud_base != state->baud_base) ||
+		    (ss->close_delay != port->close_delay) ||
+		    (ss->xmit_fifo_size != state->xmit_fifo_size) ||
+		    ((ss->flags & ~ASYNC_USR_MASK) !=
 		     (port->flags & ~ASYNC_USR_MASK))) {
 			tty_unlock(tty);
 			return -EPERM;
 		}
 		port->flags = ((port->flags & ~ASYNC_USR_MASK) |
-			       (new_serial.flags & ASYNC_USR_MASK));
-		state->custom_divisor = new_serial.custom_divisor;
+			       (ss->flags & ASYNC_USR_MASK));
+		state->custom_divisor = ss->custom_divisor;
 		goto check_and_exit;
 	}
 
-	if (new_serial.baud_base < 9600) {
+	if (ss->baud_base < 9600) {
 		tty_unlock(tty);
 		return -EINVAL;
 	}
@@ -1080,25 +1054,20 @@ static int set_serial_info(struct tty_struct *tty, struct serial_state *state,
 	 * At this point, we start making changes.....
 	 */
 
-	state->baud_base = new_serial.baud_base;
+	state->baud_base = ss->baud_base;
 	port->flags = ((port->flags & ~ASYNC_FLAGS) |
-			(new_serial.flags & ASYNC_FLAGS));
-	state->custom_divisor = new_serial.custom_divisor;
-	port->close_delay = new_serial.close_delay * HZ/100;
-	port->closing_wait = new_serial.closing_wait * HZ/100;
+			(ss->flags & ASYNC_FLAGS));
+	state->custom_divisor = ss->custom_divisor;
+	port->close_delay = ss->close_delay * HZ/100;
+	port->closing_wait = ss->closing_wait * HZ/100;
 	port->low_latency = (port->flags & ASYNC_LOW_LATENCY) ? 1 : 0;
 
 check_and_exit:
-	if (port->flags & ASYNC_INITIALIZED) {
+	if (tty_port_initialized(port)) {
 		if (change_spd) {
-			if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_HI)
-				tty->alt_speed = 57600;
-			if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_VHI)
-				tty->alt_speed = 115200;
-			if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_SHI)
-				tty->alt_speed = 230400;
-			if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_WARP)
-				tty->alt_speed = 460800;
+			/* warn about deprecation unless clearing */
+			if (ss->flags & ASYNC_SPD_MASK)
+				dev_warn_ratelimited(tty->dev, "use of SPD flags is deprecated\n");
 			change_speed(tty, state, NULL);
 		}
 	} else
@@ -1106,7 +1075,6 @@ check_and_exit:
 	tty_unlock(tty);
 	return retval;
 }
-
 
 /*
  * get_lsr_info - get line status register info
@@ -1143,7 +1111,7 @@ static int rs_tiocmget(struct tty_struct *tty)
 
 	if (serial_paranoia_check(info, tty->name, "rs_ioctl"))
 		return -ENODEV;
-	if (tty->flags & (1 << TTY_IO_ERROR))
+	if (tty_io_error(tty))
 		return -EIO;
 
 	control = info->MCR;
@@ -1165,7 +1133,7 @@ static int rs_tiocmset(struct tty_struct *tty, unsigned int set,
 
 	if (serial_paranoia_check(info, tty->name, "rs_ioctl"))
 		return -ENODEV;
-	if (tty->flags & (1 << TTY_IO_ERROR))
+	if (tty_io_error(tty))
 		return -EIO;
 
 	local_irq_save(flags);
@@ -1247,29 +1215,18 @@ static int rs_ioctl(struct tty_struct *tty,
 	if (serial_paranoia_check(info, tty->name, "rs_ioctl"))
 		return -ENODEV;
 
-	if ((cmd != TIOCGSERIAL) && (cmd != TIOCSSERIAL) &&
-	    (cmd != TIOCSERCONFIG) && (cmd != TIOCSERGSTRUCT) &&
+	if ((cmd != TIOCSERCONFIG) &&
 	    (cmd != TIOCMIWAIT) && (cmd != TIOCGICOUNT)) {
-		if (tty->flags & (1 << TTY_IO_ERROR))
+		if (tty_io_error(tty))
 		    return -EIO;
 	}
 
 	switch (cmd) {
-		case TIOCGSERIAL:
-			return get_serial_info(tty, info, argp);
-		case TIOCSSERIAL:
-			return set_serial_info(tty, info, argp);
 		case TIOCSERCONFIG:
 			return 0;
 
 		case TIOCSERGETLSR: /* Get line status register */
 			return get_lsr_info(info, argp);
-
-		case TIOCSERGSTRUCT:
-			if (copy_to_user(argp,
-					 info, sizeof(struct serial_state)))
-				return -EFAULT;
-			return 0;
 
 		/*
 		 * Wait for any of the 4 modem inputs (DCD,RI,DSR,CTS) to change
@@ -1311,12 +1268,6 @@ static int rs_ioctl(struct tty_struct *tty,
 			finish_wait(&info->tport.delta_msr_wait, &wait);
 			return ret;
 
-		case TIOCSERGWILD:
-		case TIOCSERSWILD:
-			/* "setserial -W" is called in Debian boot */
-			printk ("TIOCSER?WILD ioctl obsolete, ignored.\n");
-			return 0;
-
 		default:
 			return -ENOIOCTLCMD;
 		}
@@ -1342,7 +1293,7 @@ static void rs_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 	/* Handle transition away from B0 status */
 	if (!(old_termios->c_cflag & CBAUD) && (cflag & CBAUD)) {
 		info->MCR |= SER_DTR;
-		if (!C_CRTSCTS(tty) || !test_bit(TTY_THROTTLED, &tty->flags))
+		if (!C_CRTSCTS(tty) || !tty_throttled(tty))
 			info->MCR |= SER_RTS;
 		local_irq_save(flags);
 		rtsdtr_ctrl(info->MCR);
@@ -1395,7 +1346,7 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	 * line status register.
 	 */
 	state->read_status_mask &= ~UART_LSR_DR;
-	if (port->flags & ASYNC_INITIALIZED) {
+	if (tty_port_initialized(port)) {
 	        /* disable receive interrupts */
 	        custom.intena = IF_RBF;
 		mb();
@@ -1495,7 +1446,7 @@ static void rs_hangup(struct tty_struct *tty)
 	rs_flush_buffer(tty);
 	shutdown(tty, info);
 	info->tport.count = 0;
-	info->tport.flags &= ~ASYNC_NORMAL_ACTIVE;
+	tty_port_set_active(&info->tport, 0);
 	info->tport.tty = NULL;
 	wake_up_interruptible(&info->tport.open_wait);
 }
@@ -1543,7 +1494,7 @@ static inline void line_info(struct seq_file *m, int line,
 
 	local_irq_save(flags);
 	status = ciab.pra;
-	control = (state->tport.flags & ASYNC_INITIALIZED) ? state->MCR : status;
+	control = tty_port_initialized(&state->tport) ? state->MCR : status;
 	local_irq_restore(flags);
 
 	stat_buf[0] = 0;
@@ -1589,19 +1540,6 @@ static int rs_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int rs_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, rs_proc_show, NULL);
-}
-
-static const struct file_operations rs_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= rs_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 /*
  * ---------------------------------------------------------------------
  * rs_init() and friends
@@ -1643,7 +1581,9 @@ static const struct tty_operations serial_ops = {
 	.tiocmget = rs_tiocmget,
 	.tiocmset = rs_tiocmset,
 	.get_icount = rs_get_icount,
-	.proc_fops = &rs_proc_fops,
+	.set_serial = set_serial_info,
+	.get_serial = get_serial_info,
+	.proc_show = rs_proc_show,
 };
 
 static int amiga_carrier_raised(struct tty_port *port)

@@ -1,24 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * c67x00-sched.c: Cypress C67X00 USB Host Controller Driver - TD scheduling
  *
  * Copyright (C) 2006-2008 Barco N.V.
  *    Derived from the Cypress cy7c67200/300 ezusb linux driver and
  *    based on multiple host controller drivers inside the linux kernel.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA  02110-1301  USA.
  */
 
 #include <linux/kthread.h>
@@ -966,13 +952,11 @@ static void c67x00_handle_successful_td(struct c67x00_hcd *c67x00,
 static void c67x00_handle_isoc(struct c67x00_hcd *c67x00, struct c67x00_td *td)
 {
 	struct urb *urb = td->urb;
-	struct c67x00_urb_priv *urbp;
 	int cnt;
 
 	if (!urb)
 		return;
 
-	urbp = urb->hcpriv;
 	cnt = td->privdata;
 
 	if (td->status & TD_ERROR_MASK)
@@ -1022,15 +1006,6 @@ static inline void c67x00_check_td_list(struct c67x00_hcd *c67x00)
 
 		if ((td->status & TD_STATUSMASK_NAK) || !td_sequence_ok(td) ||
 		    !td_acked(td))
-			goto cont;
-
-		/*
-		 * at this point, there are no errors, but it's still possible
-		 * that the td wasn't executed by the c67x00. Confirm it was
-		 * executed or force a retry
-		 */
-		if ((td->retry_cnt & TD_RETRYCNTMASK_ACT_FLG) &&
-		    td->status == 0)
 			goto cont;
 
 		/* Sequence ok and acked, don't need to fix toggle */

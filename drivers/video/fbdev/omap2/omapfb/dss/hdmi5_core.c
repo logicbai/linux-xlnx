@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * OMAP5 HDMI CORE IP driver library
  *
@@ -8,18 +9,6 @@
  *	Mythri pk
  *	Archit Taneja <archit@ti.com>
  *	Tomi Valkeinen <tomi.valkeinen@ti.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/kernel.h>
@@ -51,8 +40,8 @@ static void hdmi_core_ddc_init(struct hdmi_core_data *core)
 {
 	void __iomem *base = core->base;
 	const unsigned long long iclk = 266000000;	/* DSS L3 ICLK */
-	const unsigned ss_scl_high = 4000;		/* ns */
-	const unsigned ss_scl_low = 4700;		/* ns */
+	const unsigned ss_scl_high = 4600;		/* ns */
+	const unsigned ss_scl_low = 5400;		/* ns */
 	const unsigned fs_scl_high = 600;		/* ns */
 	const unsigned fs_scl_low = 1300;		/* ns */
 	const unsigned sda_hold = 1000;			/* ns */
@@ -442,7 +431,7 @@ static void hdmi_core_write_avi_infoframe(struct hdmi_core_data *core,
 
 	c = (ptr[1] >> 6) & 0x3;
 	m = (ptr[1] >> 4) & 0x3;
-	r = (ptr[1] >> 0) & 0x3;
+	r = (ptr[1] >> 0) & 0xf;
 
 	itc = (ptr[2] >> 7) & 0x1;
 	ec = (ptr[2] >> 4) & 0x7;

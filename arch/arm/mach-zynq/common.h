@@ -1,17 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * This file contains common function prototypes to avoid externs
  * in the c files.
  *
  *  Copyright (C) 2011 Xilinx
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #ifndef __MACH_ZYNQ_COMMON_H__
@@ -25,6 +17,9 @@ extern bool zynq_slcr_cpu_state_read(int cpu);
 extern void zynq_slcr_cpu_state_write(int cpu, bool die);
 extern u32 zynq_slcr_get_ocm_config(void);
 extern u32 zynq_slcr_get_device_id(void);
+
+extern bool zynq_efuse_cpu_state(int cpu);
+extern int zynq_early_efuse_init(void);
 
 #ifdef CONFIG_SMP
 extern char zynq_secondary_trampoline;

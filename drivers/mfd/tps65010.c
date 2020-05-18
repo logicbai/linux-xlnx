@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * tps65010 - driver for tps6501x power management chips
  *
  * Copyright (C) 2004 Texas Instruments
  * Copyright (C) 2004-2005 David Brownell
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/kernel.h>
@@ -32,9 +19,9 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 
-#include <linux/i2c/tps65010.h>
+#include <linux/mfd/tps65010.h>
 
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 
 
 /*-------------------------------------------------------------------------*/
@@ -477,7 +464,7 @@ tps65010_output(struct gpio_chip *chip, unsigned offset, int value)
 	if (offset < 4) {
 		struct tps65010		*tps;
 
-		tps = container_of(chip, struct tps65010, chip);
+		tps = gpiochip_get_data(chip);
 		if (!(tps->outmask & (1 << offset)))
 			return -EINVAL;
 		tps65010_set_gpio_out_value(offset + 1, value);
@@ -494,7 +481,7 @@ static int tps65010_gpio_get(struct gpio_chip *chip, unsigned offset)
 	int			value;
 	struct tps65010		*tps;
 
-	tps = container_of(chip, struct tps65010, chip);
+	tps = gpiochip_get_data(chip);
 
 	if (offset < 4) {
 		value = i2c_smbus_read_byte_data(tps->client, TPS_DEFGPIO);
@@ -651,7 +638,7 @@ static int tps65010_probe(struct i2c_client *client,
 		tps->chip.ngpio = 7;
 		tps->chip.can_sleep = 1;
 
-		status = gpiochip_add(&tps->chip);
+		status = gpiochip_add_data(&tps->chip, tps);
 		if (status < 0)
 			dev_err(&client->dev, "can't add gpiochip, err %d\n",
 					status);

@@ -1,12 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * rt298.h  --  RT298 ALSA SoC audio driver
  *
  * Copyright 2011 Realtek Microelectronics
  * Author: Johnny Hsu <johnnyhsu@realtek.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef __RT298_H__
@@ -137,6 +134,7 @@
 #define RT298_A_BIAS_CTRL2	0x02
 #define RT298_POWER_CTRL1	0x03
 #define RT298_A_BIAS_CTRL3	0x04
+#define RT298_D_FILTER_CTRL	0x05
 #define RT298_POWER_CTRL2	0x08
 #define RT298_I2S_CTRL1		0x09
 #define RT298_I2S_CTRL2		0x0a
@@ -148,6 +146,7 @@
 #define RT298_IRQ_CTRL		0x33
 #define RT298_WIND_FILTER_CTRL	0x46
 #define RT298_PLL_CTRL1		0x49
+#define RT298_VAD_CTRL		0x4e
 #define RT298_CBJ_CTRL1		0x4f
 #define RT298_CBJ_CTRL2		0x50
 #define RT298_PLL_CTRL		0x63
@@ -208,7 +207,7 @@ enum {
 	RT298_AIFS,
 };
 
-int rt298_mic_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack);
+int rt298_mic_detect(struct snd_soc_component *component, struct snd_soc_jack *jack);
 
 #endif /* __RT298_H__ */
 

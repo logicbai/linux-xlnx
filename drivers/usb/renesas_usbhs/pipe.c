@@ -1,18 +1,9 @@
+// SPDX-License-Identifier: GPL-1.0+
 /*
  * Renesas USB driver
  *
  * Copyright (C) 2011 Renesas Solutions Corp.
  * Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- *
  */
 #include <linux/delay.h>
 #include <linux/slab.h>
@@ -286,6 +277,21 @@ int usbhs_pipe_is_accessible(struct usbhs_pipe *pipe)
 	return -EBUSY;
 }
 
+bool usbhs_pipe_contains_transmittable_data(struct usbhs_pipe *pipe)
+{
+	u16 val;
+
+	/* Do not support for DCP pipe */
+	if (usbhs_pipe_is_dcp(pipe))
+		return false;
+
+	val = usbhsp_pipectrl_get(pipe);
+	if (val & INBUFM)
+		return true;
+
+	return false;
+}
+
 /*
  *		PID ctrl
  */
@@ -391,9 +397,8 @@ void usbhs_pipe_set_trans_count_if_bulk(struct usbhs_pipe *pipe, int len)
 /*
  *		pipe setup
  */
-static u16 usbhsp_setup_pipecfg(struct usbhs_pipe *pipe,
-				int is_host,
-				int dir_in)
+static int usbhsp_setup_pipecfg(struct usbhs_pipe *pipe, int is_host,
+				int dir_in, u16 *pipecfg)
 {
 	u16 type = 0;
 	u16 bfre = 0;
@@ -402,7 +407,7 @@ static u16 usbhsp_setup_pipecfg(struct usbhs_pipe *pipe,
 	u16 dir = 0;
 	u16 epnum = 0;
 	u16 shtnak = 0;
-	u16 type_array[] = {
+	static const u16 type_array[] = {
 		[USB_ENDPOINT_XFER_BULK] = TYPE_BULK,
 		[USB_ENDPOINT_XFER_INT]  = TYPE_INT,
 		[USB_ENDPOINT_XFER_ISOC] = TYPE_ISO,
@@ -451,14 +456,14 @@ static u16 usbhsp_setup_pipecfg(struct usbhs_pipe *pipe,
 
 	/* EPNUM */
 	epnum = 0; /* see usbhs_pipe_config_update() */
-
-	return	type	|
-		bfre	|
-		dblb	|
-		cntmd	|
-		dir	|
-		shtnak	|
-		epnum;
+	*pipecfg = type		|
+		   bfre		|
+		   dblb		|
+		   cntmd	|
+		   dir		|
+		   shtnak	|
+		   epnum;
+	return 0;
 }
 
 static u16 usbhsp_setup_pipebuff(struct usbhs_pipe *pipe)
@@ -600,10 +605,22 @@ void usbhs_pipe_clear(struct usbhs_pipe *pipe)
 	}
 }
 
-void usbhs_pipe_config_change_bfre(struct usbhs_pipe *pipe, int enable)
+/* Should call usbhsp_pipe_select() before */
+void usbhs_pipe_clear_without_sequence(struct usbhs_pipe *pipe,
+				       int needs_bfre, int bfre_enable)
 {
 	int sequence;
 
+	usbhsp_pipe_select(pipe);
+	sequence = usbhs_pipe_get_data_sequence(pipe);
+	if (needs_bfre)
+		usbhsp_pipe_cfg_set(pipe, BFRE, bfre_enable ? BFRE : 0);
+	usbhs_pipe_clear(pipe);
+	usbhs_pipe_data_sequence(pipe, sequence);
+}
+
+void usbhs_pipe_config_change_bfre(struct usbhs_pipe *pipe, int enable)
+{
 	if (usbhs_pipe_is_dcp(pipe))
 		return;
 
@@ -612,10 +629,7 @@ void usbhs_pipe_config_change_bfre(struct usbhs_pipe *pipe, int enable)
 	if (!(enable ^ !!(usbhsp_pipe_cfg_get(pipe) & BFRE)))
 		return;
 
-	sequence = usbhs_pipe_get_data_sequence(pipe);
-	usbhsp_pipe_cfg_set(pipe, BFRE, enable ? BFRE : 0);
-	usbhs_pipe_clear(pipe);
-	usbhs_pipe_data_sequence(pipe, sequence);
+	usbhs_pipe_clear_without_sequence(pipe, 1, enable);
 }
 
 static struct usbhs_pipe *usbhsp_get_pipe(struct usbhs_priv *priv, u32 type)
@@ -655,7 +669,8 @@ static void usbhsp_put_pipe(struct usbhs_pipe *pipe)
 }
 
 void usbhs_pipe_init(struct usbhs_priv *priv,
-		     int (*dma_map_ctrl)(struct usbhs_pkt *pkt, int map))
+		     int (*dma_map_ctrl)(struct device *dma_dev,
+					 struct usbhs_pkt *pkt, int map))
 {
 	struct usbhs_pipe_info *info = usbhs_priv_to_pipeinfo(priv);
 	struct usbhs_pipe *pipe;
@@ -702,7 +717,11 @@ struct usbhs_pipe *usbhs_pipe_malloc(struct usbhs_priv *priv,
 		return NULL;
 	}
 
-	pipecfg  = usbhsp_setup_pipecfg(pipe, is_host, dir_in);
+	if (usbhsp_setup_pipecfg(pipe, is_host, dir_in, &pipecfg)) {
+		dev_err(dev, "can't setup pipe\n");
+		return NULL;
+	}
+
 	pipebuf  = usbhsp_setup_pipebuff(pipe);
 
 	usbhsp_pipe_select(pipe);
@@ -799,11 +818,10 @@ int usbhs_pipe_probe(struct usbhs_priv *priv)
 		return -EINVAL;
 	}
 
-	info->pipe = kzalloc(sizeof(struct usbhs_pipe) * pipe_size, GFP_KERNEL);
-	if (!info->pipe) {
-		dev_err(dev, "Could not allocate pipe\n");
+	info->pipe = kcalloc(pipe_size, sizeof(struct usbhs_pipe),
+			     GFP_KERNEL);
+	if (!info->pipe)
 		return -ENOMEM;
-	}
 
 	info->size = pipe_size;
 

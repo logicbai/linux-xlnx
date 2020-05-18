@@ -1,23 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2016 - ARM Ltd
  * Author: Marc Zyngier <marc.zyngier@arm.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include <linux/linkage.h>
 #include <asm/asm-offsets.h>
 #include <asm/kvm_arm.h>
+#include <asm/kvm_asm.h>
 
 	.arch_extension     virt
 
@@ -63,6 +53,36 @@ ENTRY(__guest_exit)
 	ldr	lr, [r0, #4]
 
 	mov	r0, r1
+	mrs	r1, SPSR
+	mrs	r2, ELR_hyp
+	mrc	p15, 4, r3, c5, c2, 0	@ HSR
+
+	/*
+	 * Force loads and stores to complete before unmasking aborts
+	 * and forcing the delivery of the exception. This gives us a
+	 * single instruction window, which the handler will try to
+	 * match.
+	 */
+	dsb	sy
+	cpsie	a
+
+	.global	abort_guest_exit_start
+abort_guest_exit_start:
+
+	isb
+
+	.global	abort_guest_exit_end
+abort_guest_exit_end:
+
+	/*
+	 * If we took an abort, r0[31] will be set, and cmp will set
+	 * the N bit in PSTATE.
+	 */
+	cmp	r0, #0
+	msrmi	SPSR_cxsf, r1
+	msrmi	ELR_hyp, r2
+	mcrmi	p15, 4, r3, c5, c2, 0	@ HSR
+
 	bx	lr
 ENDPROC(__guest_exit)
 

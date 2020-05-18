@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * gpiolib support for Wolfson WM8994
  *
@@ -5,17 +6,12 @@
  *
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
  *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/mfd/core.h>
 #include <linux/platform_device.h>
 #include <linux/seq_file.h>
@@ -101,6 +97,27 @@ static void wm8994_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 		value = WM8994_GPN_LVL;
 
 	wm8994_set_bits(wm8994, WM8994_GPIO_1 + offset, WM8994_GPN_LVL, value);
+}
+
+static int wm8994_gpio_set_config(struct gpio_chip *chip, unsigned int offset,
+				  unsigned long config)
+{
+	struct wm8994_gpio *wm8994_gpio = gpiochip_get_data(chip);
+	struct wm8994 *wm8994 = wm8994_gpio->wm8994;
+
+	switch (pinconf_to_config_param(config)) {
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		return wm8994_set_bits(wm8994, WM8994_GPIO_1 + offset,
+				       WM8994_GPN_OP_CFG_MASK,
+				       WM8994_GPN_OP_CFG);
+	case PIN_CONFIG_DRIVE_PUSH_PULL:
+		return wm8994_set_bits(wm8994, WM8994_GPIO_1 + offset,
+				       WM8994_GPN_OP_CFG_MASK, 0);
+	default:
+		break;
+	}
+
+	return -ENOTSUPP;
 }
 
 static int wm8994_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
@@ -217,7 +234,7 @@ static void wm8994_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		if (reg & WM8994_GPN_OP_CFG)
 			seq_printf(s, "open drain ");
 		else
-			seq_printf(s, "CMOS ");
+			seq_printf(s, "push-pull ");
 
 		seq_printf(s, "%s (%x)\n",
 			   wm8994_gpio_fn(reg & WM8994_GPN_FN_MASK), reg);
@@ -227,7 +244,7 @@ static void wm8994_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 #define wm8994_gpio_dbg_show NULL
 #endif
 
-static struct gpio_chip template_chip = {
+static const struct gpio_chip template_chip = {
 	.label			= "wm8994",
 	.owner			= THIS_MODULE,
 	.request		= wm8994_gpio_request,
@@ -235,6 +252,7 @@ static struct gpio_chip template_chip = {
 	.get			= wm8994_gpio_get,
 	.direction_output	= wm8994_gpio_direction_out,
 	.set			= wm8994_gpio_set,
+	.set_config		= wm8994_gpio_set_config,
 	.to_irq			= wm8994_gpio_to_irq,
 	.dbg_show		= wm8994_gpio_dbg_show,
 	.can_sleep		= true,
@@ -276,7 +294,6 @@ static int wm8994_gpio_probe(struct platform_device *pdev)
 
 static struct platform_driver wm8994_gpio_driver = {
 	.driver.name	= "wm8994-gpio",
-	.driver.owner	= THIS_MODULE,
 	.probe		= wm8994_gpio_probe,
 };
 

@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * MFD driver for Active-semi ACT8945a PMIC
  *
  * Copyright (C) 2015 Atmel Corporation.
  *
  * Author: Wenyou Yang <wenyou.yang@atmel.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under  the terms of the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the License, or (at your
- * option) any later version.
  */
 
 #include <linux/i2c.h>
@@ -23,6 +19,7 @@ static const struct mfd_cell act8945a_devs[] = {
 	},
 	{
 		.name = "act8945a-charger",
+		.of_compatible = "active-semi,act8945a-charger",
 	},
 };
 
@@ -46,19 +43,13 @@ static int act8945a_i2c_probe(struct i2c_client *i2c,
 
 	i2c_set_clientdata(i2c, regmap);
 
-	ret = mfd_add_devices(&i2c->dev, PLATFORM_DEVID_NONE, act8945a_devs,
-			      ARRAY_SIZE(act8945a_devs), NULL, 0, NULL);
+	ret = devm_mfd_add_devices(&i2c->dev, PLATFORM_DEVID_NONE,
+				   act8945a_devs, ARRAY_SIZE(act8945a_devs),
+				   NULL, 0, NULL);
 	if (ret) {
 		dev_err(&i2c->dev, "Failed to add sub devices\n");
 		return ret;
 	}
-
-	return 0;
-}
-
-static int act8945a_i2c_remove(struct i2c_client *i2c)
-{
-	mfd_remove_devices(&i2c->dev);
 
 	return 0;
 }
@@ -81,7 +72,6 @@ static struct i2c_driver act8945a_i2c_driver = {
 		   .of_match_table = of_match_ptr(act8945a_of_match),
 	},
 	.probe = act8945a_i2c_probe,
-	.remove = act8945a_i2c_remove,
 	.id_table = act8945a_i2c_id,
 };
 

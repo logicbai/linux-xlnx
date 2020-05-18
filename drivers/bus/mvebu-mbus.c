@@ -117,7 +117,7 @@ struct mvebu_mbus_soc_data {
 	unsigned int (*win_remap_offset)(const int win);
 	void (*setup_cpu_target)(struct mvebu_mbus_state *s);
 	int (*save_cpu_target)(struct mvebu_mbus_state *s,
-			       u32 *store_addr);
+			       u32 __iomem *store_addr);
 	int (*show_cpu_target)(struct mvebu_mbus_state *s,
 			       struct seq_file *seq, void *v);
 };
@@ -720,7 +720,7 @@ mvebu_mbus_default_setup_cpu_target(struct mvebu_mbus_state *mbus)
 			if (mbus->hw_io_coherency)
 				w->mbus_attr |= ATTR_HW_COHERENCY;
 			w->base = base & DDR_BASE_CS_LOW_MASK;
-			w->size = (size | ~DDR_SIZE_MASK) + 1;
+			w->size = (u64)(size | ~DDR_SIZE_MASK) + 1;
 		}
 	}
 	mvebu_mbus_dram_info.num_cs = cs;
@@ -728,7 +728,7 @@ mvebu_mbus_default_setup_cpu_target(struct mvebu_mbus_state *mbus)
 
 static int
 mvebu_mbus_default_save_cpu_target(struct mvebu_mbus_state *mbus,
-				   u32 *store_addr)
+				   u32 __iomem *store_addr)
 {
 	int i;
 
@@ -780,7 +780,7 @@ mvebu_mbus_dove_setup_cpu_target(struct mvebu_mbus_state *mbus)
 
 static int
 mvebu_mbus_dove_save_cpu_target(struct mvebu_mbus_state *mbus,
-				u32 *store_addr)
+				u32 __iomem *store_addr)
 {
 	int i;
 
@@ -796,7 +796,7 @@ mvebu_mbus_dove_save_cpu_target(struct mvebu_mbus_state *mbus,
 	return 4;
 }
 
-int mvebu_mbus_save_cpu_target(u32 *store_addr)
+int mvebu_mbus_save_cpu_target(u32 __iomem *store_addr)
 {
 	return mbus_state.soc->save_cpu_target(&mbus_state, store_addr);
 }
@@ -1089,7 +1089,7 @@ static void mvebu_mbus_resume(void)
 	}
 }
 
-struct syscore_ops mvebu_mbus_syscore_ops = {
+static struct syscore_ops mvebu_mbus_syscore_ops = {
 	.suspend	= mvebu_mbus_suspend,
 	.resume		= mvebu_mbus_resume,
 };
@@ -1229,7 +1229,7 @@ mbus_parse_ranges(struct device_node *node,
 	tuple_len = (*cell_count) * sizeof(__be32);
 
 	if (ranges_len % tuple_len) {
-		pr_warn("malformed ranges entry '%s'\n", node->name);
+		pr_warn("malformed ranges entry '%pOFn'\n", node);
 		return -EINVAL;
 	}
 	return 0;

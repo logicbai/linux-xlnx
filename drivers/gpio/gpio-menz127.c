@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * MEN 16Z127 GPIO driver
  *
  * Copyright (C) 2016 MEN Mikroelektronik GmbH (www.men.de)
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; version 2 of the License.
  */
 
 #include <linux/kernel.h>
@@ -35,7 +32,6 @@
 struct men_z127_gpio {
 	struct gpio_chip gc;
 	void __iomem *reg_base;
-	struct mcb_device *mdev;
 	struct resource *mem;
 };
 
@@ -43,7 +39,7 @@ static int men_z127_debounce(struct gpio_chip *gc, unsigned gpio,
 			     unsigned debounce)
 {
 	struct men_z127_gpio *priv = gpiochip_get_data(gc);
-	struct device *dev = &priv->mdev->dev;
+	struct device *dev = gc->parent;
 	unsigned int rnd;
 	u32 db_en, db_cnt;
 
@@ -57,9 +53,9 @@ static int men_z127_debounce(struct gpio_chip *gc, unsigned gpio,
 		rnd = fls(debounce) - 1;
 
 		if (rnd && (debounce & BIT(rnd - 1)))
-			debounce = round_up(debounce, MEN_Z127_DB_MIN_US);
+			debounce = roundup(debounce, MEN_Z127_DB_MIN_US);
 		else
-			debounce = round_down(debounce, MEN_Z127_DB_MIN_US);
+			debounce = rounddown(debounce, MEN_Z127_DB_MIN_US);
 
 		if (debounce > MEN_Z127_DB_MAX_US)
 			debounce = MEN_Z127_DB_MAX_US;
@@ -88,26 +84,47 @@ static int men_z127_debounce(struct gpio_chip *gc, unsigned gpio,
 	return 0;
 }
 
-static int men_z127_request(struct gpio_chip *gc, unsigned gpio_pin)
+static int men_z127_set_single_ended(struct gpio_chip *gc,
+				     unsigned offset,
+				     enum pin_config_param param)
 {
 	struct men_z127_gpio *priv = gpiochip_get_data(gc);
 	u32 od_en;
 
-	if (gpio_pin >= gc->ngpio)
-		return -EINVAL;
-
 	spin_lock(&gc->bgpio_lock);
 	od_en = readl(priv->reg_base + MEN_Z127_ODER);
 
-	if (gpiochip_line_is_open_drain(gc, gpio_pin))
-		od_en |= BIT(gpio_pin);
+	if (param == PIN_CONFIG_DRIVE_OPEN_DRAIN)
+		od_en |= BIT(offset);
 	else
-		od_en &= ~BIT(gpio_pin);
+		/* Implicitly PIN_CONFIG_DRIVE_PUSH_PULL */
+		od_en &= ~BIT(offset);
 
 	writel(od_en, priv->reg_base + MEN_Z127_ODER);
 	spin_unlock(&gc->bgpio_lock);
 
 	return 0;
+}
+
+static int men_z127_set_config(struct gpio_chip *gc, unsigned offset,
+			       unsigned long config)
+{
+	enum pin_config_param param = pinconf_to_config_param(config);
+
+	switch (param) {
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+	case PIN_CONFIG_DRIVE_PUSH_PULL:
+		return men_z127_set_single_ended(gc, offset, param);
+
+	case PIN_CONFIG_INPUT_DEBOUNCE:
+		return men_z127_debounce(gc, offset,
+			pinconf_to_config_argument(config));
+
+	default:
+		break;
+	}
+
+	return -ENOTSUPP;
 }
 
 static int men_z127_probe(struct mcb_device *mdev,
@@ -135,7 +152,6 @@ static int men_z127_probe(struct mcb_device *mdev,
 		goto err_release;
 	}
 
-	men_z127_gpio->mdev = mdev;
 	mcb_set_drvdata(mdev, men_z127_gpio);
 
 	ret = bgpio_init(&men_z127_gpio->gc, &mdev->dev, 4,
@@ -147,8 +163,7 @@ static int men_z127_probe(struct mcb_device *mdev,
 	if (ret)
 		goto err_unmap;
 
-	men_z127_gpio->gc.set_debounce = men_z127_debounce;
-	men_z127_gpio->gc.request = men_z127_request;
+	men_z127_gpio->gc.set_config = men_z127_set_config;
 
 	ret = gpiochip_add_data(&men_z127_gpio->gc, men_z127_gpio);
 	if (ret) {
@@ -185,7 +200,6 @@ MODULE_DEVICE_TABLE(mcb, men_z127_ids);
 static struct mcb_driver men_z127_driver = {
 	.driver = {
 		.name = "z127-gpio",
-		.owner = THIS_MODULE,
 	},
 	.probe = men_z127_probe,
 	.remove = men_z127_remove,

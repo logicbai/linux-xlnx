@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright 2013 Emilio López
  *
  * Emilio López <emilio@elopez.com.ar>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/clk-provider.h>
@@ -54,8 +45,7 @@ static void __init sun4i_osc_clk_setup(struct device_node *node)
 			NULL, 0,
 			NULL, NULL,
 			&fixed->hw, &clk_fixed_rate_ops,
-			&gate->hw, &clk_gate_ops,
-			CLK_IS_ROOT);
+			&gate->hw, &clk_gate_ops, 0);
 
 	if (IS_ERR(clk))
 		goto err_free_gate;

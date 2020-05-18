@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright IBM Corp. 2007,2012
  *
@@ -80,33 +81,10 @@ out:
  * CPU configuration related functions.
  */
 
-#define SCLP_CMDW_READ_CPU_INFO		0x00010001
 #define SCLP_CMDW_CONFIGURE_CPU		0x00110001
 #define SCLP_CMDW_DECONFIGURE_CPU	0x00100001
 
-struct read_cpu_info_sccb {
-	struct	sccb_header header;
-	u16	nr_configured;
-	u16	offset_configured;
-	u16	nr_standby;
-	u16	offset_standby;
-	u8	reserved[4096 - 16];
-} __attribute__((packed, aligned(PAGE_SIZE)));
-
-static void sclp_fill_core_info(struct sclp_core_info *info,
-				struct read_cpu_info_sccb *sccb)
-{
-	char *page = (char *) sccb;
-
-	memset(info, 0, sizeof(*info));
-	info->configured = sccb->nr_configured;
-	info->standby = sccb->nr_standby;
-	info->combined = sccb->nr_configured + sccb->nr_standby;
-	memcpy(&info->core, page + sccb->offset_configured,
-	       info->combined * sizeof(struct sclp_core_entry));
-}
-
-int sclp_get_core_info(struct sclp_core_info *info)
+int _sclp_get_core_info(struct sclp_core_info *info)
 {
 	int rc;
 	struct read_cpu_info_sccb *sccb;
@@ -275,6 +253,7 @@ static int sclp_attach_storage(u8 id)
 	if (!sccb)
 		return -ENOMEM;
 	sccb->header.length = PAGE_SIZE;
+	sccb->header.function_code = 0x40;
 	rc = sclp_sync_request_timeout(0x00080001 | id << 8, sccb,
 				       SCLP_QUEUE_INTERVAL);
 	if (rc)
@@ -481,15 +460,6 @@ static int sclp_mem_freeze(struct device *dev)
 	return -EPERM;
 }
 
-struct read_storage_sccb {
-	struct sccb_header header;
-	u16 max_id;
-	u16 assigned;
-	u16 standby;
-	u16 :16;
-	u32 entries[0];
-} __packed;
-
 static const struct dev_pm_ops sclp_mem_pm_ops = {
 	.freeze		= sclp_mem_freeze,
 };
@@ -519,7 +489,7 @@ static int __init sclp_detect_standby_memory(void)
 	for (id = 0; id <= sclp_max_storage_id; id++) {
 		memset(sccb, 0, PAGE_SIZE);
 		sccb->header.length = PAGE_SIZE;
-		rc = sclp_sync_request(0x00040001 | id << 8, sccb);
+		rc = sclp_sync_request(SCLP_CMDW_READ_STORAGE_INFO | id << 8, sccb);
 		if (rc)
 			goto out;
 		switch (sccb->header.response_code) {
@@ -574,67 +544,6 @@ out:
 __initcall(sclp_detect_standby_memory);
 
 #endif /* CONFIG_MEMORY_HOTPLUG */
-
-/*
- * PCI I/O adapter configuration related functions.
- */
-#define SCLP_CMDW_CONFIGURE_PCI			0x001a0001
-#define SCLP_CMDW_DECONFIGURE_PCI		0x001b0001
-
-#define SCLP_RECONFIG_PCI_ATPYE			2
-
-struct pci_cfg_sccb {
-	struct sccb_header header;
-	u8 atype;		/* adapter type */
-	u8 reserved1;
-	u16 reserved2;
-	u32 aid;		/* adapter identifier */
-} __packed;
-
-static int do_pci_configure(sclp_cmdw_t cmd, u32 fid)
-{
-	struct pci_cfg_sccb *sccb;
-	int rc;
-
-	if (!SCLP_HAS_PCI_RECONFIG)
-		return -EOPNOTSUPP;
-
-	sccb = (struct pci_cfg_sccb *) get_zeroed_page(GFP_KERNEL | GFP_DMA);
-	if (!sccb)
-		return -ENOMEM;
-
-	sccb->header.length = PAGE_SIZE;
-	sccb->atype = SCLP_RECONFIG_PCI_ATPYE;
-	sccb->aid = fid;
-	rc = sclp_sync_request(cmd, sccb);
-	if (rc)
-		goto out;
-	switch (sccb->header.response_code) {
-	case 0x0020:
-	case 0x0120:
-		break;
-	default:
-		pr_warn("configure PCI I/O adapter failed: cmd=0x%08x  response=0x%04x\n",
-			cmd, sccb->header.response_code);
-		rc = -EIO;
-		break;
-	}
-out:
-	free_page((unsigned long) sccb);
-	return rc;
-}
-
-int sclp_pci_configure(u32 fid)
-{
-	return do_pci_configure(SCLP_CMDW_CONFIGURE_PCI, fid);
-}
-EXPORT_SYMBOL(sclp_pci_configure);
-
-int sclp_pci_deconfigure(u32 fid)
-{
-	return do_pci_configure(SCLP_CMDW_DECONFIGURE_PCI, fid);
-}
-EXPORT_SYMBOL(sclp_pci_deconfigure);
 
 /*
  * Channel path configuration related functions.

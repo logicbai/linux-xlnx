@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * twl6040-vibra.c - TWL6040 Vibrator driver
  *
@@ -9,21 +10,6 @@
  * Based on twl4030-vibra.c by Henrik Saari <henrik.saari@nokia.com>
  *				Felipe Balbi <felipe.balbi@nokia.com>
  *				Jari Vanhala <ext-javi.vanhala@nokia.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
- *
  */
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -46,7 +32,7 @@ struct vibra_info {
 	struct device *dev;
 	struct input_dev *input_dev;
 	struct work_struct play_work;
-	struct mutex mutex;
+
 	int irq;
 
 	bool enabled;
@@ -190,8 +176,6 @@ static void vibra_play_work(struct work_struct *work)
 		return;
 	}
 
-	mutex_lock(&info->mutex);
-
 	if (info->weak_speed || info->strong_speed) {
 		if (!info->enabled)
 			twl6040_vibra_enable(info);
@@ -200,7 +184,6 @@ static void vibra_play_work(struct work_struct *work)
 	} else if (info->enabled)
 		twl6040_vibra_disable(info);
 
-	mutex_unlock(&info->mutex);
 }
 
 static int vibra_play(struct input_dev *input, void *data,
@@ -223,12 +206,8 @@ static void twl6040_vibra_close(struct input_dev *input)
 
 	cancel_work_sync(&info->play_work);
 
-	mutex_lock(&info->mutex);
-
 	if (info->enabled)
 		twl6040_vibra_disable(info);
-
-	mutex_unlock(&info->mutex);
 }
 
 static int __maybe_unused twl6040_vibra_suspend(struct device *dev)
@@ -236,12 +215,10 @@ static int __maybe_unused twl6040_vibra_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct vibra_info *info = platform_get_drvdata(pdev);
 
-	mutex_lock(&info->mutex);
+	cancel_work_sync(&info->play_work);
 
 	if (info->enabled)
 		twl6040_vibra_disable(info);
-
-	mutex_unlock(&info->mutex);
 
 	return 0;
 }
@@ -257,8 +234,7 @@ static int twl6040_vibra_probe(struct platform_device *pdev)
 	int vddvibr_uV = 0;
 	int error;
 
-	of_node_get(twl6040_core_dev->of_node);
-	twl6040_core_node = of_find_node_by_name(twl6040_core_dev->of_node,
+	twl6040_core_node = of_get_child_by_name(twl6040_core_dev->of_node,
 						 "vibra");
 	if (!twl6040_core_node) {
 		dev_err(&pdev->dev, "parent of node is missing?\n");
@@ -296,12 +272,8 @@ static int twl6040_vibra_probe(struct platform_device *pdev)
 	}
 
 	info->irq = platform_get_irq(pdev, 0);
-	if (info->irq < 0) {
-		dev_err(info->dev, "invalid irq\n");
+	if (info->irq < 0)
 		return -EINVAL;
-	}
-
-	mutex_init(&info->mutex);
 
 	error = devm_request_threaded_irq(&pdev->dev, info->irq, NULL,
 					  twl6040_vib_irq_handler,

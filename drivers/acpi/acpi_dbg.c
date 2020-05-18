@@ -1,16 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ACPI AML interfacing support
  *
  * Copyright (C) 2015, Intel Corporation
  * Authors: Lv Zheng <lv.zheng@intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 /* #define DEBUG */
-#define pr_fmt(fmt) "ACPI : AML: " fmt
+#define pr_fmt(fmt) "ACPI: AML: " fmt
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -265,7 +262,7 @@ static int acpi_aml_write_kern(const char *buf, int len)
 	char *p;
 
 	ret = acpi_aml_lock_write(crc, ACPI_AML_OUT_KERN);
-	if (IS_ERR_VALUE(ret))
+	if (ret < 0)
 		return ret;
 	/* sync tail before inserting logs */
 	smp_mb();
@@ -286,7 +283,7 @@ static int acpi_aml_readb_kern(void)
 	char *p;
 
 	ret = acpi_aml_lock_read(crc, ACPI_AML_IN_KERN);
-	if (IS_ERR_VALUE(ret))
+	if (ret < 0)
 		return ret;
 	/* sync head before removing cmds */
 	smp_rmb();
@@ -330,7 +327,7 @@ again:
 				goto again;
 			break;
 		}
-		if (IS_ERR_VALUE(ret))
+		if (ret < 0)
 			break;
 		size += ret;
 		count -= ret;
@@ -373,7 +370,7 @@ again:
 			if (ret == 0)
 				goto again;
 		}
-		if (IS_ERR_VALUE(ret))
+		if (ret < 0)
 			break;
 		*(msg + size) = (char)ret;
 		size++;
@@ -390,7 +387,7 @@ again:
 	return size > 0 ? size : ret;
 }
 
-static int acpi_aml_thread(void *unsed)
+static int acpi_aml_thread(void *unused)
 {
 	acpi_osd_exec_callback function = NULL;
 	void *context;
@@ -526,7 +523,7 @@ static int acpi_aml_open(struct inode *inode, struct file *file)
 	}
 	acpi_aml_io.users++;
 err_lock:
-	if (IS_ERR_VALUE(ret)) {
+	if (ret < 0) {
 		if (acpi_aml_active_reader == file)
 			acpi_aml_active_reader = NULL;
 	}
@@ -587,7 +584,7 @@ static int acpi_aml_read_user(char __user *buf, int len)
 	char *p;
 
 	ret = acpi_aml_lock_read(crc, ACPI_AML_OUT_USER);
-	if (IS_ERR_VALUE(ret))
+	if (ret < 0)
 		return ret;
 	/* sync head before removing logs */
 	smp_rmb();
@@ -602,7 +599,7 @@ static int acpi_aml_read_user(char __user *buf, int len)
 	crc->tail = (crc->tail + n) & (ACPI_AML_BUF_SIZE - 1);
 	ret = n;
 out:
-	acpi_aml_unlock_fifo(ACPI_AML_OUT_USER, !IS_ERR_VALUE(ret));
+	acpi_aml_unlock_fifo(ACPI_AML_OUT_USER, ret >= 0);
 	return ret;
 }
 
@@ -614,7 +611,7 @@ static ssize_t acpi_aml_read(struct file *file, char __user *buf,
 
 	if (!count)
 		return 0;
-	if (!access_ok(VERIFY_WRITE, buf, count))
+	if (!access_ok(buf, count))
 		return -EFAULT;
 
 	while (count > 0) {
@@ -634,7 +631,7 @@ again:
 					goto again;
 			}
 		}
-		if (IS_ERR_VALUE(ret)) {
+		if (ret < 0) {
 			if (!acpi_aml_running())
 				ret = 0;
 			break;
@@ -657,7 +654,7 @@ static int acpi_aml_write_user(const char __user *buf, int len)
 	char *p;
 
 	ret = acpi_aml_lock_write(crc, ACPI_AML_IN_USER);
-	if (IS_ERR_VALUE(ret))
+	if (ret < 0)
 		return ret;
 	/* sync tail before inserting cmds */
 	smp_mb();
@@ -672,7 +669,7 @@ static int acpi_aml_write_user(const char __user *buf, int len)
 	crc->head = (crc->head + n) & (ACPI_AML_BUF_SIZE - 1);
 	ret = n;
 out:
-	acpi_aml_unlock_fifo(ACPI_AML_IN_USER, !IS_ERR_VALUE(ret));
+	acpi_aml_unlock_fifo(ACPI_AML_IN_USER, ret >= 0);
 	return n;
 }
 
@@ -684,7 +681,7 @@ static ssize_t acpi_aml_write(struct file *file, const char __user *buf,
 
 	if (!count)
 		return 0;
-	if (!access_ok(VERIFY_READ, buf, count))
+	if (!access_ok(buf, count))
 		return -EFAULT;
 
 	while (count > 0) {
@@ -704,7 +701,7 @@ again:
 					goto again;
 			}
 		}
-		if (IS_ERR_VALUE(ret)) {
+		if (ret < 0) {
 			if (!acpi_aml_running())
 				ret = 0;
 			break;
@@ -718,15 +715,15 @@ again:
 	return size > 0 ? size : ret;
 }
 
-static unsigned int acpi_aml_poll(struct file *file, poll_table *wait)
+static __poll_t acpi_aml_poll(struct file *file, poll_table *wait)
 {
-	int masks = 0;
+	__poll_t masks = 0;
 
 	poll_wait(file, &acpi_aml_io.wait, wait);
 	if (acpi_aml_user_readable())
-		masks |= POLLIN | POLLRDNORM;
+		masks |= EPOLLIN | EPOLLRDNORM;
 	if (acpi_aml_user_writable())
-		masks |= POLLOUT | POLLWRNORM;
+		masks |= EPOLLOUT | EPOLLWRNORM;
 
 	return masks;
 }
@@ -750,48 +747,36 @@ static const struct acpi_debugger_ops acpi_aml_debugger = {
 
 int __init acpi_aml_init(void)
 {
-	int ret = 0;
-
-	if (!acpi_debugfs_dir) {
-		ret = -ENOENT;
-		goto err_exit;
-	}
+	int ret;
 
 	/* Initialize AML IO interface */
 	mutex_init(&acpi_aml_io.lock);
 	init_waitqueue_head(&acpi_aml_io.wait);
 	acpi_aml_io.out_crc.buf = acpi_aml_io.out_buf;
 	acpi_aml_io.in_crc.buf = acpi_aml_io.in_buf;
+
 	acpi_aml_dentry = debugfs_create_file("acpidbg",
 					      S_IFREG | S_IRUGO | S_IWUSR,
 					      acpi_debugfs_dir, NULL,
 					      &acpi_aml_operations);
-	if (acpi_aml_dentry == NULL) {
-		ret = -ENODEV;
-		goto err_exit;
-	}
-	ret = acpi_register_debugger(THIS_MODULE, &acpi_aml_debugger);
-	if (ret)
-		goto err_fs;
-	acpi_aml_initialized = true;
 
-err_fs:
+	ret = acpi_register_debugger(THIS_MODULE, &acpi_aml_debugger);
 	if (ret) {
 		debugfs_remove(acpi_aml_dentry);
 		acpi_aml_dentry = NULL;
+		return ret;
 	}
-err_exit:
-	return ret;
+
+	acpi_aml_initialized = true;
+	return 0;
 }
 
 void __exit acpi_aml_exit(void)
 {
 	if (acpi_aml_initialized) {
 		acpi_unregister_debugger(&acpi_aml_debugger);
-		if (acpi_aml_dentry) {
-			debugfs_remove(acpi_aml_dentry);
-			acpi_aml_dentry = NULL;
-		}
+		debugfs_remove(acpi_aml_dentry);
+		acpi_aml_dentry = NULL;
 		acpi_aml_initialized = false;
 	}
 }

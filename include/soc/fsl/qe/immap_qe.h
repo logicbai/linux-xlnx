@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * QUICC Engine (QE) Internal Memory Map.
  * The Internal Memory Map for devices with QE on them. This
@@ -7,11 +8,6 @@
  *
  * Authors: 	Shlomi Gridish <gridish@freescale.com>
  * 		Li Yang <leoli@freescale.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 #ifndef _ASM_POWERPC_IMMAP_QE_H
 #define _ASM_POWERPC_IMMAP_QE_H
@@ -159,10 +155,7 @@ struct spi {
 
 /* SI */
 struct si1 {
-	__be16	siamr1;		/* SI1 TDMA mode register */
-	__be16	sibmr1;		/* SI1 TDMB mode register */
-	__be16	sicmr1;		/* SI1 TDMC mode register */
-	__be16	sidmr1;		/* SI1 TDMD mode register */
+	__be16	sixmr1[4];	/* SI1 TDMx (x = A B C D) mode register */
 	u8	siglmr1_h;	/* SI1 global mode register high */
 	u8	res0[0x1];
 	u8	sicmdr1_h;	/* SI1 command register high */
@@ -467,25 +460,6 @@ struct qe_immap {
 } __attribute__ ((packed));
 
 extern struct qe_immap __iomem *qe_immr;
-extern phys_addr_t get_qe_base(void);
-
-/*
- * Returns the offset within the QE address space of the given pointer.
- *
- * Note that the QE does not support 36-bit physical addresses, so if
- * get_qe_base() returns a number above 4GB, the caller will probably fail.
- */
-static inline phys_addr_t immrbar_virt_to_phys(void *address)
-{
-	void *q = (void *)qe_immr;
-
-	/* Is it a MURAM address? */
-	if ((address >= q) && (address < (q + QE_IMMAP_SIZE)))
-		return get_qe_base() + (address - q);
-
-	/* It's an address returned by kmalloc */
-	return virt_to_phys(address);
-}
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_IMMAP_QE_H */

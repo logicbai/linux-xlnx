@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2015, Michael Neuling, IBM Corp.
- * Licensed under GPLv2.
  *
  * Test the kernel's signal delievery code to ensure that we don't
  * trelaim twice in the kernel signal delivery code.  This can happen
@@ -60,9 +60,9 @@ int tm_signal_stack()
 		exit(1);
 	asm volatile("li 1, 0 ;"		/* stack ptr == NULL */
 		     "1:"
-		     ".long 0x7C00051D ;"	/* tbegin */
+		     "tbegin.;"
 		     "beq 1b ;"			/* retry forever */
-		     ".long 0x7C0005DD ; ;"	/* tsuspend */
+		     "tsuspend.;"
 		     "ld 2, 0(1) ;"		/* trigger segv" */
 		     : : : "memory");
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Off-channel operation helpers
  *
@@ -7,10 +8,7 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2009	Johannes Berg <johannes@sipsolutions.net>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright (C) 2019 Intel Corporation
  */
 #include <linux/export.h>
 #include <net/mac80211.h>
@@ -128,7 +126,8 @@ void ieee80211_offchannel_stop_vifs(struct ieee80211_local *local)
 		if (!ieee80211_sdata_running(sdata))
 			continue;
 
-		if (sdata->vif.type == NL80211_IFTYPE_P2P_DEVICE)
+		if (sdata->vif.type == NL80211_IFTYPE_P2P_DEVICE ||
+		    sdata->vif.type == NL80211_IFTYPE_NAN)
 			continue;
 
 		if (sdata->vif.type != NL80211_IFTYPE_MONITOR)
@@ -201,6 +200,10 @@ static void ieee80211_roc_notify_destroy(struct ieee80211_roc_work *roc)
 		cfg80211_remain_on_channel_expired(&roc->sdata->wdev,
 						   roc->cookie, roc->chan,
 						   GFP_KERNEL);
+	else
+		cfg80211_tx_mgmt_expired(&roc->sdata->wdev,
+					 roc->mgmt_tx_cookie,
+					 roc->chan, GFP_KERNEL);
 
 	list_del(&roc->list);
 	kfree(roc);
@@ -261,7 +264,7 @@ static void ieee80211_handle_roc_started(struct ieee80211_roc_work *roc,
 	if (roc->mgmt_tx_cookie) {
 		if (!WARN_ON(!roc->frame)) {
 			ieee80211_tx_skb_tid_band(roc->sdata, roc->frame, 7,
-						  roc->chan->band);
+						  roc->chan->band, 0);
 			roc->frame = NULL;
 		}
 	} else {
@@ -706,6 +709,8 @@ static int ieee80211_cancel_roc(struct ieee80211_local *local,
 	if (!cookie)
 		return -ENOENT;
 
+	flush_work(&local->hw_roc_start);
+
 	mutex_lock(&local->mtx);
 	list_for_each_entry_safe(roc, tmp, &local->roc_list, list) {
 		if (!mgmt_tx && roc->cookie != cookie)
@@ -728,7 +733,7 @@ static int ieee80211_cancel_roc(struct ieee80211_local *local,
 	}
 
 	if (local->ops->remain_on_channel) {
-		ret = drv_cancel_remain_on_channel(local);
+		ret = drv_cancel_remain_on_channel(local, roc->sdata);
 		if (WARN_ON_ONCE(ret)) {
 			mutex_unlock(&local->mtx);
 			return ret;
@@ -798,14 +803,14 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	case NL80211_IFTYPE_ADHOC:
 		if (!sdata->vif.bss_conf.ibss_joined)
 			need_offchan = true;
-		/* fall through */
 #ifdef CONFIG_MAC80211_MESH
+		/* fall through */
 	case NL80211_IFTYPE_MESH_POINT:
 		if (ieee80211_vif_is_mesh(&sdata->vif) &&
 		    !sdata->u.mesh.mesh_id_len)
 			need_offchan = true;
-		/* fall through */
 #endif
+		/* fall through */
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_AP_VLAN:
 	case NL80211_IFTYPE_P2P_GO:
@@ -819,7 +824,7 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 		    mgmt->u.action.category == WLAN_CATEGORY_SPECTRUM_MGMT)
 			break;
 		rcu_read_lock();
-		sta = sta_info_get(sdata, mgmt->da);
+		sta = sta_info_get_bss(sdata, mgmt->da);
 		rcu_read_unlock();
 		if (!sta)
 			return -ENOLINK;
@@ -838,6 +843,7 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	case NL80211_IFTYPE_P2P_DEVICE:
 		need_offchan = true;
 		break;
+	case NL80211_IFTYPE_NAN:
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -883,8 +889,7 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	}
 	skb_reserve(skb, local->hw.extra_tx_headroom);
 
-	data = skb_put(skb, params->len);
-	memcpy(data, params->buf, params->len);
+	data = skb_put_data(skb, params->buf, params->len);
 
 	/* Update CSA counters */
 	if (sdata->vif.csa_active &&
@@ -987,7 +992,7 @@ void ieee80211_roc_purge(struct ieee80211_local *local,
 		if (roc->started) {
 			if (local->ops->remain_on_channel) {
 				/* can race, so ignore return value */
-				drv_cancel_remain_on_channel(local);
+				drv_cancel_remain_on_channel(local, sdata);
 				ieee80211_roc_notify_destroy(roc);
 			} else {
 				roc->abort = true;

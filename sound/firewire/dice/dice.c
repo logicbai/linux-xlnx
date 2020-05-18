@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * TC Applied Technologies Digital Interface Communications Engine driver
  *
  * Copyright (c) Clemens Ladisch <clemens@ladisch.de>
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 #include "dice.h"
@@ -14,43 +14,18 @@ MODULE_LICENSE("GPL v2");
 #define OUI_WEISS		0x001c6a
 #define OUI_LOUD		0x000ff2
 #define OUI_FOCUSRITE		0x00130e
-#define OUI_TCELECTRONIC	0x001486
+#define OUI_TCELECTRONIC	0x000166
+#define OUI_ALESIS		0x000595
+#define OUI_MAUDIO		0x000d6c
+#define OUI_MYTEK		0x001ee8
+#define OUI_SSL			0x0050c2	// Actually ID reserved by IEEE.
+#define OUI_PRESONUS		0x000a92
 
 #define DICE_CATEGORY_ID	0x04
 #define WEISS_CATEGORY_ID	0x00
 #define LOUD_CATEGORY_ID	0x10
 
-#define PROBE_DELAY_MS		(2 * MSEC_PER_SEC)
-
-/*
- * Some models support several isochronous channels, while these streams are not
- * always available. In this case, add the model name to this list.
- */
-static bool force_two_pcm_support(struct fw_unit *unit)
-{
-	const char *const models[] = {
-		/* TC Electronic models. */
-		"StudioKonnekt48",
-		/* Focusrite models. */
-		"SAFFIRE_PRO_40",
-		"LIQUID_SAFFIRE_56",
-		"SAFFIRE_PRO_40_1",
-	};
-	char model[32];
-	unsigned int i;
-	int err;
-
-	err = fw_csr_string(unit->directory, CSR_MODEL, model, sizeof(model));
-	if (err < 0)
-		return false;
-
-	for (i = 0; i < ARRAY_SIZE(models); i++) {
-		if (strcmp(models[i], model) == 0)
-			break;
-	}
-
-	return i < ARRAY_SIZE(models);
-}
+#define MODEL_ALESIS_IO_BOTH	0x000001
 
 static int check_dice_category(struct fw_unit *unit)
 {
@@ -75,11 +50,6 @@ static int check_dice_category(struct fw_unit *unit)
 			model = val;
 			break;
 		}
-	}
-
-	if (vendor == OUI_FOCUSRITE || vendor == OUI_TCELECTRONIC) {
-		if (force_two_pcm_support(unit))
-			return 0;
 	}
 
 	if (vendor == OUI_WEISS)
@@ -154,25 +124,12 @@ static void dice_card_strings(struct snd_dice *dice)
 	strcpy(card->mixername, "DICE");
 }
 
-static void dice_free(struct snd_dice *dice)
-{
-	snd_dice_stream_destroy_duplex(dice);
-	snd_dice_transaction_destroy(dice);
-	fw_unit_put(dice->unit);
-
-	mutex_destroy(&dice->mutex);
-	kfree(dice);
-}
-
-/*
- * This module releases the FireWire unit data after all ALSA character devices
- * are released by applications. This is for releasing stream data or finishing
- * transactions safely. Thus at returning from .remove(), this module still keep
- * references for the unit.
- */
 static void dice_card_free(struct snd_card *card)
 {
-	dice_free(card->private_data);
+	struct snd_dice *dice = card->private_data;
+
+	snd_dice_stream_destroy_duplex(dice);
+	snd_dice_transaction_destroy(dice);
 }
 
 static void do_registration(struct work_struct *work)
@@ -187,9 +144,8 @@ static void do_registration(struct work_struct *work)
 			   &dice->card);
 	if (err < 0)
 		return;
-
-	if (force_two_pcm_support(dice->unit))
-		dice->force_two_pcms = true;
+	dice->card->private_free = dice_card_free;
+	dice->card->private_data = dice;
 
 	err = snd_dice_transaction_init(dice);
 	if (err < 0)
@@ -200,6 +156,14 @@ static void do_registration(struct work_struct *work)
 		goto error;
 
 	dice_card_strings(dice);
+
+	err = dice->detect_formats(dice);
+	if (err < 0)
+		goto error;
+
+	err = snd_dice_stream_init_duplex(dice);
+	if (err < 0)
+		goto error;
 
 	snd_dice_create_proc(dice);
 
@@ -219,69 +183,49 @@ static void do_registration(struct work_struct *work)
 	if (err < 0)
 		goto error;
 
-	/*
-	 * After registered, dice instance can be released corresponding to
-	 * releasing the sound card instance.
-	 */
-	dice->card->private_free = dice_card_free;
-	dice->card->private_data = dice;
 	dice->registered = true;
 
 	return;
 error:
-	snd_dice_transaction_destroy(dice);
 	snd_card_free(dice->card);
 	dev_info(&dice->unit->device,
 		 "Sound card registration failed: %d\n", err);
 }
 
-static void schedule_registration(struct snd_dice *dice)
-{
-	struct fw_card *fw_card = fw_parent_device(dice->unit)->card;
-	u64 now, delay;
-
-	now = get_jiffies_64();
-	delay = fw_card->reset_jiffies + msecs_to_jiffies(PROBE_DELAY_MS);
-
-	if (time_after64(delay, now))
-		delay -= now;
-	else
-		delay = 0;
-
-	mod_delayed_work(system_wq, &dice->dwork, delay);
-}
-
-static int dice_probe(struct fw_unit *unit, const struct ieee1394_device_id *id)
+static int dice_probe(struct fw_unit *unit,
+		      const struct ieee1394_device_id *entry)
 {
 	struct snd_dice *dice;
 	int err;
 
-	err = check_dice_category(unit);
-	if (err < 0)
-		return -ENODEV;
+	if (!entry->driver_data && entry->vendor_id != OUI_SSL) {
+		err = check_dice_category(unit);
+		if (err < 0)
+			return -ENODEV;
+	}
 
 	/* Allocate this independent of sound card instance. */
-	dice = kzalloc(sizeof(struct snd_dice), GFP_KERNEL);
-	if (dice == NULL)
+	dice = devm_kzalloc(&unit->device, sizeof(struct snd_dice), GFP_KERNEL);
+	if (!dice)
 		return -ENOMEM;
-
 	dice->unit = fw_unit_get(unit);
 	dev_set_drvdata(&unit->device, dice);
+
+	if (!entry->driver_data) {
+		dice->detect_formats = snd_dice_stream_detect_current_formats;
+	} else {
+		dice->detect_formats =
+				(snd_dice_detect_formats_t)entry->driver_data;
+	}
 
 	spin_lock_init(&dice->lock);
 	mutex_init(&dice->mutex);
 	init_completion(&dice->clock_accepted);
 	init_waitqueue_head(&dice->hwdep_wait);
 
-	err = snd_dice_stream_init_duplex(dice);
-	if (err < 0) {
-		dice_free(dice);
-		return err;
-	}
-
 	/* Allocate and register this sound card later. */
 	INIT_DEFERRABLE_WORK(&dice->dwork, do_registration);
-	schedule_registration(dice);
+	snd_fw_schedule_registration(unit, &dice->dwork);
 
 	return 0;
 }
@@ -298,12 +242,12 @@ static void dice_remove(struct fw_unit *unit)
 	cancel_delayed_work_sync(&dice->dwork);
 
 	if (dice->registered) {
-		/* No need to wait for releasing card object in this context. */
-		snd_card_free_when_closed(dice->card);
-	} else {
-		/* Don't forget this case. */
-		dice_free(dice);
+		// Block till all of ALSA character devices are released.
+		snd_card_free(dice->card);
 	}
+
+	mutex_destroy(&dice->mutex);
+	fw_unit_put(dice->unit);
 }
 
 static void dice_bus_reset(struct fw_unit *unit)
@@ -312,7 +256,7 @@ static void dice_bus_reset(struct fw_unit *unit)
 
 	/* Postpone a workqueue for deferred registration. */
 	if (!dice->registered)
-		schedule_registration(dice);
+		snd_fw_schedule_registration(unit, &dice->dwork);
 
 	/* The handler address register becomes initialized. */
 	snd_dice_transaction_reinit(dice);
@@ -331,6 +275,111 @@ static void dice_bus_reset(struct fw_unit *unit)
 #define DICE_INTERFACE	0x000001
 
 static const struct ieee1394_device_id dice_id_table[] = {
+	/* M-Audio Profire 2626 has a different value in version field. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_MAUDIO,
+		.model_id	= 0x000010,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_extension_formats,
+	},
+	/* M-Audio Profire 610 has a different value in version field. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_MAUDIO,
+		.model_id	= 0x000011,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_extension_formats,
+	},
+	/* TC Electronic Konnekt 24D. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000020,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Konnekt 8. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000021,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Studio Konnekt 48. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000022,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Konnekt Live. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000023,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Desktop Konnekt 6. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000024,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Impact Twin. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000027,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* TC Electronic Digital Konnekt x32. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_TCELECTRONIC,
+		.model_id	= 0x000030,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_tcelectronic_formats,
+	},
+	/* Alesis iO14/iO26. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_ALESIS,
+		.model_id	= MODEL_ALESIS_IO_BOTH,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_alesis_formats,
+	},
+	/* Mytek Stereo 192 DSD-DAC. */
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_MYTEK,
+		.model_id	= 0x000002,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_mytek_formats,
+	},
+	// Solid State Logic, Duende Classic and Mini.
+	// NOTE: each field of GUID in config ROM is not compliant to standard
+	// DICE scheme.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_SSL,
+		.model_id	= 0x000070,
+	},
+	// Presonus FireStudio.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_PRESONUS,
+		.model_id	= 0x000008,
+		.driver_data	= (kernel_ulong_t)snd_dice_detect_presonus_formats,
+	},
 	{
 		.match_flags = IEEE1394_MATCH_VERSION,
 		.version     = DICE_INTERFACE,

@@ -1,24 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Original code:
  * Copyright (C) 2012 - Virtual Open Systems and Columbia University
  * Author: Christoffer Dall <c.dall@virtualopensystems.com>
  *
  * Mostly rewritten in C by Marc Zyngier <marc.zyngier@arm.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <asm/kvm_hyp.h>
+#include <asm/kvm_mmu.h>
 
 /**
  * Flush per-VMID TLBs
@@ -34,13 +24,13 @@
  * As v7 does not support flushing per IPA, just nuke the whole TLB
  * instead, ignoring the ipa value.
  */
-static void __hyp_text __tlb_flush_vmid(struct kvm *kvm)
+void __hyp_text __kvm_tlb_flush_vmid(struct kvm *kvm)
 {
 	dsb(ishst);
 
 	/* Switch to requested VMID */
 	kvm = kern_hyp_va(kvm);
-	write_sysreg(kvm->arch.vttbr, VTTBR);
+	write_sysreg(kvm_get_vttbr(kvm), VTTBR);
 	isb();
 
 	write_sysreg(0, TLBIALLIS);
@@ -50,21 +40,29 @@ static void __hyp_text __tlb_flush_vmid(struct kvm *kvm)
 	write_sysreg(0, VTTBR);
 }
 
-__alias(__tlb_flush_vmid) void __kvm_tlb_flush_vmid(struct kvm *kvm);
-
-static void __hyp_text __tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
+void __hyp_text __kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
-	__tlb_flush_vmid(kvm);
+	__kvm_tlb_flush_vmid(kvm);
 }
 
-__alias(__tlb_flush_vmid_ipa) void __kvm_tlb_flush_vmid_ipa(struct kvm *kvm,
-							    phys_addr_t ipa);
+void __hyp_text __kvm_tlb_flush_local_vmid(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = kern_hyp_va(kern_hyp_va(vcpu)->kvm);
 
-static void __hyp_text __tlb_flush_vm_context(void)
+	/* Switch to requested VMID */
+	write_sysreg(kvm_get_vttbr(kvm), VTTBR);
+	isb();
+
+	write_sysreg(0, TLBIALL);
+	dsb(nsh);
+	isb();
+
+	write_sysreg(0, VTTBR);
+}
+
+void __hyp_text __kvm_flush_vm_context(void)
 {
 	write_sysreg(0, TLBIALLNSNHIS);
 	write_sysreg(0, ICIALLUIS);
 	dsb(ish);
 }
-
-__alias(__tlb_flush_vm_context) void __kvm_flush_vm_context(void);

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 if MACH_PIC32
 
 choice
@@ -14,7 +15,7 @@ config PIC32MZDA
 	select SYS_HAS_EARLY_PRINTK
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_LITTLE_ENDIAN
-	select ARCH_REQUIRE_GPIOLIB
+	select GPIOLIB
 	select COMMON_CLK
 	select CLKDEV_LOOKUP
 	select LIBFDT
@@ -38,12 +39,12 @@ choice
 	  Select the devicetree.
 
 config DTB_PIC32_NONE
-       bool "None"
+	bool "None"
 
 config DTB_PIC32_MZDA_SK
-       bool "PIC32MZDA Starter Kit"
-       depends on PIC32MZDA
-       select BUILTIN_DTB
+	bool "PIC32MZDA Starter Kit"
+	depends on PIC32MZDA
+	select BUILTIN_DTB
 
 endchoice
 

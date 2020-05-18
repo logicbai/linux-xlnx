@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Simple heartbeat STM source driver
  * Copyright (c) 2016, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  *
  * Heartbeat STM source will send repetitive messages over STM devices to a
  * trace host.
@@ -26,7 +18,7 @@
 static int nr_devs = 4;
 static int interval_ms = 10;
 
-module_param(nr_devs, int, 0600);
+module_param(nr_devs, int, 0400);
 module_param(interval_ms, int, 0600);
 
 static struct stm_heartbeat {
@@ -34,8 +26,6 @@ static struct stm_heartbeat {
 	struct hrtimer		hrtimer;
 	unsigned int		active;
 } stm_heartbeat[STM_HEARTBEAT_MAX];
-
-static unsigned int nr_instances;
 
 static const char str[] = "heartbeat stm source driver is here to serve you";
 
@@ -74,19 +64,19 @@ static void stm_heartbeat_unlink(struct stm_source_data *data)
 
 static int stm_heartbeat_init(void)
 {
-	int i, ret = -ENOMEM, __nr_instances = ACCESS_ONCE(nr_devs);
+	int i, ret = -ENOMEM;
 
-	if (__nr_instances < 0 || __nr_instances > STM_HEARTBEAT_MAX)
+	if (nr_devs < 0 || nr_devs > STM_HEARTBEAT_MAX)
 		return -EINVAL;
 
-	for (i = 0; i < __nr_instances; i++) {
+	for (i = 0; i < nr_devs; i++) {
 		stm_heartbeat[i].data.name =
 			kasprintf(GFP_KERNEL, "heartbeat.%d", i);
 		if (!stm_heartbeat[i].data.name)
 			goto fail_unregister;
 
 		stm_heartbeat[i].data.nr_chans	= 1;
-		stm_heartbeat[i].data.link		= stm_heartbeat_link;
+		stm_heartbeat[i].data.link	= stm_heartbeat_link;
 		stm_heartbeat[i].data.unlink	= stm_heartbeat_unlink;
 		hrtimer_init(&stm_heartbeat[i].hrtimer, CLOCK_MONOTONIC,
 			     HRTIMER_MODE_ABS);
@@ -97,8 +87,6 @@ static int stm_heartbeat_init(void)
 		if (ret)
 			goto fail_free;
 	}
-
-	nr_instances = __nr_instances;
 
 	return 0;
 
@@ -116,7 +104,7 @@ static void stm_heartbeat_exit(void)
 {
 	int i;
 
-	for (i = 0; i < nr_instances; i++) {
+	for (i = 0; i < nr_devs; i++) {
 		stm_source_unregister_device(&stm_heartbeat[i].data);
 		kfree(stm_heartbeat[i].data.name);
 	}

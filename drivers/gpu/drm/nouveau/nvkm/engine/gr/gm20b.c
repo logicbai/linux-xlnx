@@ -42,7 +42,7 @@ gm20b_gr_init_gpc_mmu(struct gf100_gr *gr)
 	}
 
 	val = nvkm_rd32(device, 0x100c80);
-	val &= 0xf000087f;
+	val &= 0xf000187f;
 	nvkm_wr32(device, 0x418880, val);
 	nvkm_wr32(device, 0x418890, 0);
 	nvkm_wr32(device, 0x418894, 0);
@@ -64,11 +64,18 @@ gm20b_gr_set_hww_esr_report_mask(struct gf100_gr *gr)
 
 static const struct gf100_gr_func
 gm20b_gr = {
+	.oneinit_tiles = gm200_gr_oneinit_tiles,
+	.oneinit_sm_id = gm200_gr_oneinit_sm_id,
 	.init = gk20a_gr_init,
+	.init_zcull = gf117_gr_init_zcull,
 	.init_gpc_mmu = gm20b_gr_init_gpc_mmu,
+	.init_rop_active_fbps = gk104_gr_init_rop_active_fbps,
+	.trap_mp = gf100_gr_trap_mp,
 	.set_hww_esr_report_mask = gm20b_gr_set_hww_esr_report_mask,
+	.rops = gm200_gr_rops,
 	.ppc_nr = 1,
 	.grctx = &gm20b_grctx,
+	.zbc = &gf100_gr_zbc,
 	.sclass = {
 		{ -1, -1, FERMI_TWOD_A },
 		{ -1, -1, KEPLER_INLINE_TO_MEMORY_B },

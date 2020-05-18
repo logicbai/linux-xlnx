@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Xilinx Video IP Composite Device
  *
@@ -6,10 +7,6 @@
  *
  * Contacts: Hyun Kwon <hyun.kwon@xilinx.com>
  *           Laurent Pinchart <laurent.pinchart@ideasonboard.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/list.h>
@@ -22,7 +19,7 @@
 #include <media/v4l2-async.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-device.h>
-#include <media/v4l2-of.h>
+#include <media/v4l2-fwnode.h>
 
 #include "xilinx-dma.h"
 #include "xilinx-vipp.h"
@@ -30,22 +27,34 @@
 #define XVIPP_DMA_S2MM				0
 #define XVIPP_DMA_MM2S				1
 
+/*
+ * This is for backward compatibility for existing applications,
+ * and planned to be deprecated
+ */
+static bool xvip_is_mplane = true;
+MODULE_PARM_DESC(is_mplane,
+		 "v4l2 device capability to handle multi planar formats");
+module_param_named(is_mplane, xvip_is_mplane, bool, 0444);
+
 /**
  * struct xvip_graph_entity - Entity in the video graph
- * @list: list entry in a graph entities list
- * @node: the entity's DT node
- * @entity: media entity, from the corresponding V4L2 subdev
  * @asd: subdev asynchronous registration information
+ * @entity: media entity, from the corresponding V4L2 subdev
  * @subdev: V4L2 subdev
+ * @streaming: status of the V4L2 subdev if streaming or not
  */
 struct xvip_graph_entity {
-	struct list_head list;
-	struct device_node *node;
+	struct v4l2_async_subdev asd; /* must be first */
 	struct media_entity *entity;
-
-	struct v4l2_async_subdev asd;
 	struct v4l2_subdev *subdev;
+	bool streaming;
 };
+
+static inline struct xvip_graph_entity *
+to_xvip_entity(struct v4l2_async_subdev *asd)
+{
+	return container_of(asd, struct xvip_graph_entity, asd);
+}
 
 /* -----------------------------------------------------------------------------
  * Graph Management
@@ -53,13 +62,31 @@ struct xvip_graph_entity {
 
 static struct xvip_graph_entity *
 xvip_graph_find_entity(struct xvip_composite_device *xdev,
-		       const struct device_node *node)
+		       const struct fwnode_handle *fwnode)
 {
 	struct xvip_graph_entity *entity;
+	struct v4l2_async_subdev *asd;
 
-	list_for_each_entry(entity, &xdev->entities, list) {
-		if (entity->node == node)
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		entity = to_xvip_entity(asd);
+		if (entity->asd.match.fwnode == fwnode)
 			return entity;
+	}
+
+	return NULL;
+}
+
+static struct xvip_graph_entity *
+xvip_graph_find_entity_from_media(struct xvip_composite_device *xdev,
+				  struct media_entity *entity)
+{
+	struct xvip_graph_entity *xvip_entity;
+	struct v4l2_async_subdev *asd;
+
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		xvip_entity = to_xvip_entity(asd);
+		if (xvip_entity->entity == entity)
+			return xvip_entity;
 	}
 
 	return NULL;
@@ -74,28 +101,25 @@ static int xvip_graph_build_one(struct xvip_composite_device *xdev,
 	struct media_pad *local_pad;
 	struct media_pad *remote_pad;
 	struct xvip_graph_entity *ent;
-	struct v4l2_of_link link;
-	struct device_node *ep = NULL;
-	struct device_node *next;
+	struct v4l2_fwnode_link link;
+	struct fwnode_handle *ep = NULL;
 	int ret = 0;
 
 	dev_dbg(xdev->dev, "creating links for entity %s\n", local->name);
 
 	while (1) {
 		/* Get the next endpoint and parse its link. */
-		next = of_graph_get_next_endpoint(entity->node, ep);
-		if (next == NULL)
+		ep = fwnode_graph_get_next_endpoint(entity->asd.match.fwnode,
+						    ep);
+		if (ep == NULL)
 			break;
 
-		of_node_put(ep);
-		ep = next;
+		dev_dbg(xdev->dev, "processing endpoint %p\n", ep);
 
-		dev_dbg(xdev->dev, "processing endpoint %s\n", ep->full_name);
-
-		ret = v4l2_of_parse_link(ep, &link);
+		ret = v4l2_fwnode_parse_link(ep, &link);
 		if (ret < 0) {
-			dev_err(xdev->dev, "failed to parse link for %s\n",
-				ep->full_name);
+			dev_err(xdev->dev, "failed to parse link for %p\n",
+				ep);
 			continue;
 		}
 
@@ -103,9 +127,9 @@ static int xvip_graph_build_one(struct xvip_composite_device *xdev,
 		 * the link.
 		 */
 		if (link.local_port >= local->num_pads) {
-			dev_err(xdev->dev, "invalid port number %u on %s\n",
-				link.local_port, link.local_node->full_name);
-			v4l2_of_put_link(&link);
+			dev_err(xdev->dev, "invalid port number %u for %p\n",
+				link.local_port, link.local_node);
+			v4l2_fwnode_put_link(&link);
 			ret = -EINVAL;
 			break;
 		}
@@ -113,26 +137,26 @@ static int xvip_graph_build_one(struct xvip_composite_device *xdev,
 		local_pad = &local->pads[link.local_port];
 
 		if (local_pad->flags & MEDIA_PAD_FL_SINK) {
-			dev_dbg(xdev->dev, "skipping sink port %s:%u\n",
-				link.local_node->full_name, link.local_port);
-			v4l2_of_put_link(&link);
+			dev_dbg(xdev->dev, "skipping sink port %p:%u\n",
+				link.local_node, link.local_port);
+			v4l2_fwnode_put_link(&link);
 			continue;
 		}
 
 		/* Skip DMA engines, they will be processed separately. */
-		if (link.remote_node == xdev->dev->of_node) {
-			dev_dbg(xdev->dev, "skipping DMA port %s:%u\n",
-				link.local_node->full_name, link.local_port);
-			v4l2_of_put_link(&link);
+		if (link.remote_node == of_fwnode_handle(xdev->dev->of_node)) {
+			dev_dbg(xdev->dev, "skipping DMA port %p:%u\n",
+				link.local_node, link.local_port);
+			v4l2_fwnode_put_link(&link);
 			continue;
 		}
 
 		/* Find the remote entity. */
 		ent = xvip_graph_find_entity(xdev, link.remote_node);
 		if (ent == NULL) {
-			dev_err(xdev->dev, "no entity found for %s\n",
-				link.remote_node->full_name);
-			v4l2_of_put_link(&link);
+			dev_err(xdev->dev, "no entity found for %p\n",
+				link.remote_node);
+			v4l2_fwnode_put_link(&link);
 			ret = -ENODEV;
 			break;
 		}
@@ -140,16 +164,16 @@ static int xvip_graph_build_one(struct xvip_composite_device *xdev,
 		remote = ent->entity;
 
 		if (link.remote_port >= remote->num_pads) {
-			dev_err(xdev->dev, "invalid port number %u on %s\n",
-				link.remote_port, link.remote_node->full_name);
-			v4l2_of_put_link(&link);
+			dev_err(xdev->dev, "invalid port number %u on %p\n",
+				link.remote_port, link.remote_node);
+			v4l2_fwnode_put_link(&link);
 			ret = -EINVAL;
 			break;
 		}
 
 		remote_pad = &remote->pads[link.remote_port];
 
-		v4l2_of_put_link(&link);
+		v4l2_fwnode_put_link(&link);
 
 		/* Create the media link. */
 		dev_dbg(xdev->dev, "creating %s:%u -> %s:%u link\n",
@@ -168,7 +192,6 @@ static int xvip_graph_build_one(struct xvip_composite_device *xdev,
 		}
 	}
 
-	of_node_put(ep);
 	return ret;
 }
 
@@ -185,6 +208,183 @@ xvip_graph_find_dma(struct xvip_composite_device *xdev, unsigned int port)
 	return NULL;
 }
 
+/**
+ * xvip_graph_entity_set_streaming - Update the streaming status
+ * @xdev: Composite video device
+ * @entity: graph entity to update
+ * @enable: enable/disable streaming status
+ *
+ * Update the streaming status of given entity.
+ *
+ * Return: previous streaming status (true or false)
+ */
+static bool xvip_graph_entity_set_streaming(struct xvip_composite_device *xdev,
+					    struct xvip_graph_entity *entity,
+					    bool enable)
+{
+	bool status = entity->streaming;
+
+	entity->streaming = enable;
+	return status;
+}
+
+static int
+xvip_graph_entity_start_stop_subdev(struct xvip_composite_device *xdev,
+				    struct xvip_graph_entity *entity, bool on)
+{
+	struct v4l2_subdev *subdev;
+	int ret = 0;
+
+	dev_dbg(xdev->dev, "%s entity %s\n",
+		on ? "Starting" : "Stopping", entity->entity->name);
+	subdev = media_entity_to_v4l2_subdev(entity->entity);
+
+	/*
+	 * start or stop the subdev only once in case if they are
+	 * shared between sub-graphs
+	 */
+	if (on) {
+		/* power-on subdevice */
+		ret = v4l2_subdev_call(subdev, core, s_power, 1);
+		if (ret < 0 && ret != -ENOIOCTLCMD) {
+			dev_err(xdev->dev,
+				"s_power on failed on subdev\n");
+			xvip_graph_entity_set_streaming(xdev, entity, 0);
+			return ret;
+		}
+
+		/* stream-on subdevice */
+		ret = v4l2_subdev_call(subdev, video, s_stream, 1);
+		if (ret < 0 && ret != -ENOIOCTLCMD) {
+			dev_err(xdev->dev,
+				"s_stream on failed on subdev\n");
+			v4l2_subdev_call(subdev, core, s_power, 0);
+			xvip_graph_entity_set_streaming(xdev, entity, 0);
+		}
+	} else {
+		/* stream-off subdevice */
+		ret = v4l2_subdev_call(subdev, video, s_stream, 0);
+		if (ret < 0 && ret != -ENOIOCTLCMD) {
+			dev_err(xdev->dev,
+				"s_stream off failed on subdev\n");
+			xvip_graph_entity_set_streaming(xdev, entity, 1);
+		}
+
+		/* power-off subdevice */
+		ret = v4l2_subdev_call(subdev, core, s_power, 0);
+		if (ret < 0 && ret != -ENOIOCTLCMD)
+			dev_err(xdev->dev,
+				"s_power off failed on subdev\n");
+	}
+
+	if (ret == -ENOIOCTLCMD)
+		ret = 0;
+
+	return ret;
+}
+
+/**
+ * xvip_graph_entity_start_stop - start / stop the graph entity
+ * @xdev: composite device
+ * @entity: entity to check
+ * @on: boolean flag. true for enable and false for disable
+ *
+ * Check if all immediate dependencies are ready dependeing on 'on' flag.
+ * If enabling, check all source pads. Sink pads for disabling. Once all
+ * dependencies are ready, set the streaming state on the entity. If the state
+ * is already set, optimize it by skipping checks.
+ *
+ * Return: true if the state is successfully or already set. false otherwise.
+ */
+static bool xvip_graph_entity_start_stop(struct xvip_composite_device *xdev,
+					 struct xvip_graph_entity *entity,
+					 bool on)
+{
+	unsigned long pad_flag = on ? MEDIA_PAD_FL_SOURCE : MEDIA_PAD_FL_SINK;
+	unsigned int i;
+	struct v4l2_subdev *subdev;
+	bool state;
+	int ret;
+
+	if (entity->streaming == on)
+		return true;
+
+	for (i = 0; i < entity->entity->num_pads; i++) {
+		struct xvip_graph_entity *remote;
+		struct media_pad *pad;
+
+		if (!(entity->entity->pads[i].flags & pad_flag))
+			continue;
+
+		/* skipping not connected pads */
+		pad = media_entity_remote_pad(&entity->entity->pads[i]);
+		if (!pad || !pad->entity)
+			continue;
+
+		/*
+		 * Skip if there is no remote. This entity is at the end,
+		 * such as DMA, sensor, or other type.
+		 */
+		remote = xvip_graph_find_entity_from_media(xdev, pad->entity);
+		if (!remote)
+			continue;
+
+		/* the dependency state doesn't meet */
+		if (remote->streaming != on) {
+			state = xvip_graph_entity_start_stop(xdev, remote, on);
+			if (!state)
+				return state;
+		}
+	}
+
+	/* set state and report if state is changed or not */
+	subdev = media_entity_to_v4l2_subdev(entity->entity);
+	state = xvip_graph_entity_set_streaming(xdev, entity, on);
+	/* This shouldn't happen as check is already above */
+	if (state == on) {
+		WARN(1, "Should never get here\n");
+		return true;
+	}
+
+	ret = xvip_graph_entity_start_stop_subdev(xdev, entity, on);
+	if (ret < 0) {
+		dev_err(xdev->dev, "ret = %d for entity %s\n",
+			ret, entity->entity->name);
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * xvip_graph_start_stop - start or stop the entire graph
+ * @xdev: composite device
+ * @on: boolean flag. true for enable and false for disable
+ *
+ * Enable or disable the entire graph by iterating the asd list.
+ * xvip_graph_entity_start_stop() takes care of dependencies,
+ * or state-checking.
+ *
+ * Return: 0 for success, otherwise error code
+ */
+int xvip_graph_start_stop(struct xvip_composite_device *xdev, bool on)
+{
+	struct v4l2_async_subdev *asd;
+
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		struct xvip_graph_entity *entity;
+		bool state;
+
+		entity = to_xvip_entity(asd);
+
+		state = xvip_graph_entity_start_stop(xdev, entity, on);
+		if (!state)
+			return -EPIPE;
+	}
+
+	return 0;
+}
+
 static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 {
 	u32 link_flags = MEDIA_LNK_FL_ENABLED;
@@ -194,9 +394,8 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 	struct media_pad *source_pad;
 	struct media_pad *sink_pad;
 	struct xvip_graph_entity *ent;
-	struct v4l2_of_link link;
+	struct v4l2_fwnode_link link;
 	struct device_node *ep = NULL;
-	struct device_node *next;
 	struct xvip_dma *dma;
 	int ret = 0;
 
@@ -204,19 +403,16 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 
 	while (1) {
 		/* Get the next endpoint and parse its link. */
-		next = of_graph_get_next_endpoint(node, ep);
-		if (next == NULL)
+		ep = of_graph_get_next_endpoint(node, ep);
+		if (ep == NULL)
 			break;
 
-		of_node_put(ep);
-		ep = next;
+		dev_dbg(xdev->dev, "processing endpoint %pOF\n", ep);
 
-		dev_dbg(xdev->dev, "processing endpoint %s\n", ep->full_name);
-
-		ret = v4l2_of_parse_link(ep, &link);
+		ret = v4l2_fwnode_parse_link(of_fwnode_handle(ep), &link);
 		if (ret < 0) {
-			dev_err(xdev->dev, "failed to parse link for %s\n",
-				ep->full_name);
+			dev_err(xdev->dev, "failed to parse link for %pOF\n",
+				ep);
 			continue;
 		}
 
@@ -225,7 +421,7 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 		if (dma == NULL) {
 			dev_err(xdev->dev, "no DMA engine found for port %u\n",
 				link.local_port);
-			v4l2_of_put_link(&link);
+			v4l2_fwnode_put_link(&link);
 			ret = -EINVAL;
 			break;
 		}
@@ -236,17 +432,18 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 		/* Find the remote entity. */
 		ent = xvip_graph_find_entity(xdev, link.remote_node);
 		if (ent == NULL) {
-			dev_err(xdev->dev, "no entity found for %s\n",
-				link.remote_node->full_name);
-			v4l2_of_put_link(&link);
+			dev_err(xdev->dev, "no entity found for %pOF\n",
+				to_of_node(link.remote_node));
+			v4l2_fwnode_put_link(&link);
 			ret = -ENODEV;
 			break;
 		}
 
 		if (link.remote_port >= ent->entity->num_pads) {
-			dev_err(xdev->dev, "invalid port number %u on %s\n",
-				link.remote_port, link.remote_node->full_name);
-			v4l2_of_put_link(&link);
+			dev_err(xdev->dev, "invalid port number %u on %pOF\n",
+				link.remote_port,
+				to_of_node(link.remote_node));
+			v4l2_fwnode_put_link(&link);
 			ret = -EINVAL;
 			break;
 		}
@@ -263,7 +460,7 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 			sink_pad = &dma->pad;
 		}
 
-		v4l2_of_put_link(&link);
+		v4l2_fwnode_put_link(&link);
 
 		/* Create the media link. */
 		dev_dbg(xdev->dev, "creating %s:%u -> %s:%u link\n",
@@ -282,7 +479,6 @@ static int xvip_graph_build_dma(struct xvip_composite_device *xdev)
 		}
 	}
 
-	of_node_put(ep);
 	return ret;
 }
 
@@ -291,12 +487,14 @@ static int xvip_graph_notify_complete(struct v4l2_async_notifier *notifier)
 	struct xvip_composite_device *xdev =
 		container_of(notifier, struct xvip_composite_device, notifier);
 	struct xvip_graph_entity *entity;
+	struct v4l2_async_subdev *asd;
 	int ret;
 
 	dev_dbg(xdev->dev, "notify complete, all subdevs registered\n");
 
 	/* Create links for every entity. */
-	list_for_each_entry(entity, &xdev->entities, list) {
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		entity = to_xvip_entity(asd);
 		ret = xvip_graph_build_one(xdev, entity);
 		if (ret < 0)
 			return ret;
@@ -316,22 +514,25 @@ static int xvip_graph_notify_complete(struct v4l2_async_notifier *notifier)
 
 static int xvip_graph_notify_bound(struct v4l2_async_notifier *notifier,
 				   struct v4l2_subdev *subdev,
-				   struct v4l2_async_subdev *asd)
+				   struct v4l2_async_subdev *unused)
 {
 	struct xvip_composite_device *xdev =
 		container_of(notifier, struct xvip_composite_device, notifier);
 	struct xvip_graph_entity *entity;
+	struct v4l2_async_subdev *asd;
 
 	/* Locate the entity corresponding to the bound subdev and store the
 	 * subdev pointer.
 	 */
-	list_for_each_entry(entity, &xdev->entities, list) {
-		if (entity->node != subdev->dev->of_node)
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		entity = to_xvip_entity(asd);
+
+		if (entity->asd.match.fwnode != subdev->fwnode)
 			continue;
 
 		if (entity->subdev) {
-			dev_err(xdev->dev, "duplicate subdev for node %s\n",
-				entity->node->full_name);
+			dev_err(xdev->dev, "duplicate subdev for node %p\n",
+				entity->asd.match.fwnode);
 			return -EINVAL;
 		}
 
@@ -345,61 +546,66 @@ static int xvip_graph_notify_bound(struct v4l2_async_notifier *notifier,
 	return -EINVAL;
 }
 
+static const struct v4l2_async_notifier_operations xvip_graph_notify_ops = {
+	.bound = xvip_graph_notify_bound,
+	.complete = xvip_graph_notify_complete,
+};
+
 static int xvip_graph_parse_one(struct xvip_composite_device *xdev,
-				struct device_node *node)
+				struct fwnode_handle *fwnode)
 {
-	struct xvip_graph_entity *entity;
-	struct device_node *remote;
-	struct device_node *ep = NULL;
-	struct device_node *next;
+	struct fwnode_handle *remote;
+	struct fwnode_handle *ep = NULL;
 	int ret = 0;
 
-	dev_dbg(xdev->dev, "parsing node %s\n", node->full_name);
+	dev_dbg(xdev->dev, "parsing node %p\n", fwnode);
 
 	while (1) {
-		next = of_graph_get_next_endpoint(node, ep);
-		if (next == NULL)
+		struct v4l2_async_subdev *asd;
+
+		ep = fwnode_graph_get_next_endpoint(fwnode, ep);
+		if (ep == NULL)
 			break;
 
-		of_node_put(ep);
-		ep = next;
+		dev_dbg(xdev->dev, "handling endpoint %p\n", ep);
 
-		dev_dbg(xdev->dev, "handling endpoint %s\n", ep->full_name);
-
-		remote = of_graph_get_remote_port_parent(ep);
+		remote = fwnode_graph_get_remote_port_parent(ep);
 		if (remote == NULL) {
 			ret = -EINVAL;
-			break;
+			goto err_notifier_cleanup;
 		}
 
+		fwnode_handle_put(ep);
+
 		/* Skip entities that we have already processed. */
-		if (remote == xdev->dev->of_node ||
+		if (remote == of_fwnode_handle(xdev->dev->of_node) ||
 		    xvip_graph_find_entity(xdev, remote)) {
-			of_node_put(remote);
+			fwnode_handle_put(remote);
 			continue;
 		}
 
-		entity = devm_kzalloc(xdev->dev, sizeof(*entity), GFP_KERNEL);
-		if (entity == NULL) {
-			of_node_put(remote);
-			ret = -ENOMEM;
-			break;
+		asd = v4l2_async_notifier_add_fwnode_subdev(
+			&xdev->notifier, remote,
+			sizeof(struct xvip_graph_entity));
+		fwnode_handle_put(remote);
+		if (IS_ERR(asd)) {
+			ret = PTR_ERR(asd);
+			goto err_notifier_cleanup;
 		}
-
-		entity->node = remote;
-		entity->asd.match_type = V4L2_ASYNC_MATCH_OF;
-		entity->asd.match.of.node = remote;
-		list_add_tail(&entity->list, &xdev->entities);
-		xdev->num_subdevs++;
 	}
 
-	of_node_put(ep);
+	return 0;
+
+err_notifier_cleanup:
+	v4l2_async_notifier_cleanup(&xdev->notifier);
+	fwnode_handle_put(ep);
 	return ret;
 }
 
 static int xvip_graph_parse(struct xvip_composite_device *xdev)
 {
 	struct xvip_graph_entity *entity;
+	struct v4l2_async_subdev *asd;
 	int ret;
 
 	/*
@@ -408,14 +614,17 @@ static int xvip_graph_parse(struct xvip_composite_device *xdev)
 	 * loop will handle entities added at the end of the list while walking
 	 * the links.
 	 */
-	ret = xvip_graph_parse_one(xdev, xdev->dev->of_node);
+	ret = xvip_graph_parse_one(xdev, of_fwnode_handle(xdev->dev->of_node));
 	if (ret < 0)
 		return 0;
 
-	list_for_each_entry(entity, &xdev->entities, list) {
-		ret = xvip_graph_parse_one(xdev, entity->node);
-		if (ret < 0)
+	list_for_each_entry(asd, &xdev->notifier.asd_list, asd_list) {
+		entity = to_xvip_entity(asd);
+		ret = xvip_graph_parse_one(xdev, entity->asd.match.fwnode);
+		if (ret < 0) {
+			v4l2_async_notifier_cleanup(&xdev->notifier);
 			break;
+		}
 	}
 
 	return ret;
@@ -435,9 +644,11 @@ static int xvip_graph_dma_init_one(struct xvip_composite_device *xdev,
 		return ret;
 
 	if (strcmp(direction, "input") == 0)
-		type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		type = xvip_is_mplane ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE :
+						V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	else if (strcmp(direction, "output") == 0)
-		type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+		type = xvip_is_mplane ? V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE :
+					V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	else
 		return -EINVAL;
 
@@ -449,15 +660,20 @@ static int xvip_graph_dma_init_one(struct xvip_composite_device *xdev,
 
 	ret = xvip_dma_init(xdev, dma, type, index);
 	if (ret < 0) {
-		dev_err(xdev->dev, "%s initialization failed\n",
-			node->full_name);
+		dev_err(xdev->dev, "%pOF initialization failed\n", node);
 		return ret;
 	}
 
 	list_add_tail(&dma->list, &xdev->dmas);
 
-	xdev->v4l2_caps |= type == V4L2_BUF_TYPE_VIDEO_CAPTURE
-			 ? V4L2_CAP_VIDEO_CAPTURE : V4L2_CAP_VIDEO_OUTPUT;
+	if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		xdev->v4l2_caps |= V4L2_CAP_VIDEO_CAPTURE_MPLANE;
+	else if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		xdev->v4l2_caps |= V4L2_CAP_VIDEO_CAPTURE;
+	else if (type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
+		xdev->v4l2_caps |= V4L2_CAP_VIDEO_OUTPUT;
+	else if (type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
+		xdev->v4l2_caps |= V4L2_CAP_VIDEO_OUTPUT_MPLANE;
 
 	return 0;
 }
@@ -487,17 +703,11 @@ static int xvip_graph_dma_init(struct xvip_composite_device *xdev)
 
 static void xvip_graph_cleanup(struct xvip_composite_device *xdev)
 {
-	struct xvip_graph_entity *entityp;
-	struct xvip_graph_entity *entity;
 	struct xvip_dma *dmap;
 	struct xvip_dma *dma;
 
 	v4l2_async_notifier_unregister(&xdev->notifier);
-
-	list_for_each_entry_safe(entity, entityp, &xdev->entities, list) {
-		of_node_put(entity->node);
-		list_del(&entity->list);
-	}
+	v4l2_async_notifier_cleanup(&xdev->notifier);
 
 	list_for_each_entry_safe(dma, dmap, &xdev->dmas, list) {
 		xvip_dma_cleanup(dma);
@@ -507,10 +717,6 @@ static void xvip_graph_cleanup(struct xvip_composite_device *xdev)
 
 static int xvip_graph_init(struct xvip_composite_device *xdev)
 {
-	struct xvip_graph_entity *entity;
-	struct v4l2_async_subdev **subdevs = NULL;
-	unsigned int num_subdevs;
-	unsigned int i;
 	int ret;
 
 	/* Init the DMA channels. */
@@ -527,28 +733,13 @@ static int xvip_graph_init(struct xvip_composite_device *xdev)
 		goto done;
 	}
 
-	if (!xdev->num_subdevs) {
+	if (list_empty(&xdev->notifier.asd_list)) {
 		dev_err(xdev->dev, "no subdev found in graph\n");
 		goto done;
 	}
 
 	/* Register the subdevices notifier. */
-	num_subdevs = xdev->num_subdevs;
-	subdevs = devm_kzalloc(xdev->dev, sizeof(*subdevs) * num_subdevs,
-			       GFP_KERNEL);
-	if (subdevs == NULL) {
-		ret = -ENOMEM;
-		goto done;
-	}
-
-	i = 0;
-	list_for_each_entry(entity, &xdev->entities, list)
-		subdevs[i++] = &entity->asd;
-
-	xdev->notifier.subdevs = subdevs;
-	xdev->notifier.num_subdevs = num_subdevs;
-	xdev->notifier.bound = xvip_graph_notify_bound;
-	xdev->notifier.complete = xvip_graph_notify_complete;
+	xdev->notifier.ops = &xvip_graph_notify_ops;
 
 	ret = v4l2_async_notifier_register(&xdev->v4l2_dev, &xdev->notifier);
 	if (ret < 0) {
@@ -581,7 +772,7 @@ static int xvip_composite_v4l2_init(struct xvip_composite_device *xdev)
 	int ret;
 
 	xdev->media_dev.dev = xdev->dev;
-	strlcpy(xdev->media_dev.model, "Xilinx Video Composite Device",
+	strscpy(xdev->media_dev.model, "Xilinx Video Composite Device",
 		sizeof(xdev->media_dev.model));
 	xdev->media_dev.hw_revision = 0;
 
@@ -613,8 +804,9 @@ static int xvip_composite_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	xdev->dev = &pdev->dev;
-	INIT_LIST_HEAD(&xdev->entities);
+	mutex_init(&xdev->lock);
 	INIT_LIST_HEAD(&xdev->dmas);
+	v4l2_async_notifier_init(&xdev->notifier);
 
 	ret = xvip_composite_v4l2_init(xdev);
 	if (ret < 0)
@@ -639,6 +831,7 @@ static int xvip_composite_remove(struct platform_device *pdev)
 {
 	struct xvip_composite_device *xdev = platform_get_drvdata(pdev);
 
+	mutex_destroy(&xdev->lock);
 	xvip_graph_cleanup(xdev);
 	xvip_composite_v4l2_cleanup(xdev);
 

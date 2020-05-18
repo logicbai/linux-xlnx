@@ -1,21 +1,24 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __PERF_CALLCHAIN_H
 #define __PERF_CALLCHAIN_H
 
-#include "../perf.h"
 #include <linux/list.h>
 #include <linux/rbtree.h>
-#include "event.h"
-#include "symbol.h"
+#include "map_symbol.h"
+#include "branch.h"
+
+struct addr_location;
+struct evsel;
+struct ip_callchain;
+struct map;
+struct perf_sample;
+struct thread;
 
 #define HELP_PAD "\t\t\t\t"
 
 #define CALLCHAIN_HELP "setup and enables call-graph (stack chain/backtrace):\n\n"
 
-#ifdef HAVE_DWARF_UNWIND_SUPPORT
 # define RECORD_MODE_HELP  HELP_PAD "record_mode:\tcall graph recording mode (fp|dwarf|lbr)\n"
-#else
-# define RECORD_MODE_HELP  HELP_PAD "record_mode:\tcall graph recording mode (fp|lbr)\n"
-#endif
 
 #define RECORD_SIZE_HELP						\
 	HELP_PAD "record_size:\tif record_mode is 'dwarf', max size of stack recording (<bytes>)\n" \
@@ -80,7 +83,8 @@ typedef void (*sort_chain_func_t)(struct rb_root *, struct callchain_root *,
 
 enum chain_key {
 	CCKEY_FUNCTION,
-	CCKEY_ADDRESS
+	CCKEY_ADDRESS,
+	CCKEY_SRCLINE
 };
 
 enum chain_value {
@@ -89,11 +93,14 @@ enum chain_value {
 	CCVAL_COUNT,
 };
 
+extern bool dwarf_callchain_users;
+
 struct callchain_param {
 	bool			enabled;
 	enum perf_call_graph_mode record_mode;
 	u32			dump_size;
 	enum chain_mode 	mode;
+	u16			max_stack;
 	u32			print_limit;
 	double			min_percent;
 	sort_chain_func_t	sort;
@@ -105,6 +112,7 @@ struct callchain_param {
 };
 
 extern struct callchain_param callchain_param;
+extern struct callchain_param callchain_param_default;
 
 struct callchain_list {
 	u64			ip;
@@ -113,7 +121,15 @@ struct callchain_list {
 		bool		unfolded;
 		bool		has_children;
 	};
-	char		       *srcline;
+	u64			branch_count;
+	u64			from_count;
+	u64			predicted_count;
+	u64			abort_count;
+	u64			cycles_count;
+	u64			iter_count;
+	u64			iter_cycles;
+	struct branch_type_stat brtype_stat;
+	const char		*srcline;
 	struct list_head	list;
 };
 
@@ -127,6 +143,12 @@ struct callchain_cursor_node {
 	u64				ip;
 	struct map			*map;
 	struct symbol			*sym;
+	const char			*srcline;
+	bool				branch;
+	struct branch_flags		branch_flags;
+	u64				branch_from;
+	int				nr_loop_iter;
+	u64				iter_cycles;
 	struct callchain_cursor_node	*next;
 };
 
@@ -170,18 +192,13 @@ int callchain_append(struct callchain_root *root,
 int callchain_merge(struct callchain_cursor *cursor,
 		    struct callchain_root *dst, struct callchain_root *src);
 
-/*
- * Initialize a cursor before adding entries inside, but keep
- * the previously allocated entries as a cache.
- */
-static inline void callchain_cursor_reset(struct callchain_cursor *cursor)
-{
-	cursor->nr = 0;
-	cursor->last = &cursor->first;
-}
+void callchain_cursor_reset(struct callchain_cursor *cursor);
 
 int callchain_cursor_append(struct callchain_cursor *cursor, u64 ip,
-			    struct map *map, struct symbol *sym);
+			    struct map *map, struct symbol *sym,
+			    bool branch, struct branch_flags *flags,
+			    int nr_loop_iter, u64 iter_cycles, u64 branch_from,
+			    const char *srcline);
 
 /* Close a cursor writing session. Initialize for the reader */
 static inline void callchain_cursor_commit(struct callchain_cursor *cursor)
@@ -206,14 +223,24 @@ static inline void callchain_cursor_advance(struct callchain_cursor *cursor)
 	cursor->pos++;
 }
 
+int callchain_cursor__copy(struct callchain_cursor *dst,
+			   struct callchain_cursor *src);
+
 struct option;
 struct hist_entry;
 
 int record_parse_callchain_opt(const struct option *opt, const char *arg, int unset);
 int record_callchain_opt(const struct option *opt, const char *arg, int unset);
 
-int sample__resolve_callchain(struct perf_sample *sample, struct symbol **parent,
-			      struct perf_evsel *evsel, struct addr_location *al,
+struct record_opts;
+
+int record_opts__parse_callchain(struct record_opts *record,
+				 struct callchain_param *callchain,
+				 const char *arg, bool unset);
+
+int sample__resolve_callchain(struct perf_sample *sample,
+			      struct callchain_cursor *cursor, struct symbol **parent,
+			      struct evsel *evsel, struct addr_location *al,
 			      int max_stack);
 int hist_entry__append_callchain(struct hist_entry *he, struct perf_sample *sample);
 int fill_callchain_info(struct addr_location *al, struct callchain_cursor_node *node,
@@ -252,8 +279,15 @@ char *callchain_node__scnprintf_value(struct callchain_node *node,
 int callchain_node__fprintf_value(struct callchain_node *node,
 				  FILE *fp, u64 total);
 
+int callchain_list_counts__printf_value(struct callchain_list *clist,
+					FILE *fp, char *bf, int bfsize);
+
 void free_callchain(struct callchain_root *root);
 void decay_callchain(struct callchain_root *root);
 int callchain_node__make_parent_list(struct callchain_node *node);
+
+int callchain_branch_counts(struct callchain_root *root,
+			    u64 *branch_count, u64 *predicted_count,
+			    u64 *abort_count, u64 *cycles_count);
 
 #endif	/* __PERF_CALLCHAIN_H */

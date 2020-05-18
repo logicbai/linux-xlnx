@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (C) 2000 Deep Blue Solutions Ltd
  *  Copyright (C) 2002 Shane Nay (shane@minirl.com)
  *  Copyright 2005-2007 Freescale Semiconductor, Inc. All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/types.h>
@@ -554,20 +545,19 @@ static void __init mx31ads_map_io(void)
 	iotable_init(mx31ads_io_desc, ARRAY_SIZE(mx31ads_io_desc));
 }
 
-static void __init mx31ads_init_irq(void)
-{
-	mx31_init_irq();
-	mx31ads_init_expio();
-}
-
 static void __init mx31ads_init(void)
 {
 	imx31_soc_init();
 
-	mxc_init_extuart();
 	mxc_init_imx_uart();
-	mxc_init_i2c();
 	mxc_init_audio();
+}
+
+static void __init mx31ads_late(void)
+{
+	mx31ads_init_expio();
+	mxc_init_extuart();
+	mxc_init_i2c();
 	mxc_init_ext_ethernet();
 }
 
@@ -581,8 +571,9 @@ MACHINE_START(MX31ADS, "Freescale MX31ADS")
 	.atag_offset = 0x100,
 	.map_io = mx31ads_map_io,
 	.init_early = imx31_init_early,
-	.init_irq = mx31ads_init_irq,
+	.init_irq	= mx31_init_irq,
 	.init_time	= mx31ads_timer_init,
 	.init_machine = mx31ads_init,
+	.init_late	= mx31ads_late,
 	.restart	= mxc_restart,
 MACHINE_END

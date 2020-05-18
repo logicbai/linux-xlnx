@@ -23,7 +23,7 @@
 #include <linux/slab.h>
 
 #include <asm/irq.h>
-#include <asm-generic/msi.h>
+#include <asm/msi.h>
 
 /* MSIX message address format: local GIC target */
 #define ALPINE_MSIX_SPI_TARGET_CLUSTER0		BIT(16)
@@ -268,7 +268,8 @@ static int alpine_msix_init(struct device_node *node,
 		goto err_priv;
 	}
 
-	priv->msi_map = kzalloc(sizeof(*priv->msi_map) * BITS_TO_LONGS(priv->num_spis),
+	priv->msi_map = kcalloc(BITS_TO_LONGS(priv->num_spis),
+				sizeof(*priv->msi_map),
 				GFP_KERNEL);
 	if (!priv->msi_map) {
 		ret = -ENOMEM;

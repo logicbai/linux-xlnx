@@ -1,43 +1,6 @@
-/*
- * Copyright 2013 Freescale Semiconductor, Inc.
- *
- * This file is dual-licensed: you can use it either under the terms
- * of the GPL or the X11 license, at your option. Note that this dual
- * licensing only applies to this file, and not this project as a
- * whole.
- *
- *  a) This file is free software; you can redistribute it and/or
- *     modify it under the terms of the GNU General Public License
- *     version 2 as published by the Free Software Foundation.
- *
- *     This file is distributed in the hope that it will be useful
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU General Public License for more details.
- *
- * Or, alternatively
- *
- *  b) Permission is hereby granted, free of charge, to any person
- *     obtaining a copy of this software and associated documentation
- *     files (the "Software"), to deal in the Software without
- *     restriction, including without limitation the rights to use
- *     copy, modify, merge, publish, distribute, sublicense, and/or
- *     sell copies of the Software, and to permit persons to whom the
- *     Software is furnished to do so, subject to the following
- *     conditions:
- *
- *     The above copyright notice and this permission notice shall be
- *     included in all copies or substantial portions of the Software.
- *
- *     THE SOFTWARE IS PROVIDED , WITHOUT WARRANTY OF ANY KIND
- *     EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- *     OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *     NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- *     HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
- *     WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- *     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- *     OTHER DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+//
+// Copyright 2013 Freescale Semiconductor, Inc.
 
 #include "vf610-pinfunc.h"
 #include <dt-bindings/clock/vf610-clock.h>
@@ -84,6 +47,11 @@
 		mask = <0x1000>;
 	};
 
+	tempsensor: iio-hwmon {
+		compatible = "iio-hwmon";
+		io-channels = <&adc0 16>, <&adc1 16>;
+	};
+
 	soc {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -95,6 +63,7 @@
 			compatible = "fsl,aips-bus", "simple-bus";
 			#address-cells = <1>;
 			#size-cells = <1>;
+			reg = <0x40000000 0x00070000>;
 			ranges;
 
 			mscm_cpucfg: cpucfg@40001000 {
@@ -184,7 +153,7 @@
 				status = "disabled";
 			};
 
-			dspi0: dspi0@4002c000 {
+			dspi0: spi@4002c000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-dspi";
@@ -193,10 +162,13 @@
 				clocks = <&clks VF610_CLK_DSPI0>;
 				clock-names = "dspi";
 				spi-num-chipselects = <6>;
+				dmas = <&edma1 1 12>,
+					<&edma1 1 13>;
+				dma-names = "rx", "tx";
 				status = "disabled";
 			};
 
-			dspi1: dspi1@4002d000 {
+			dspi1: spi@4002d000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-dspi";
@@ -205,6 +177,9 @@
 				clocks = <&clks VF610_CLK_DSPI1>;
 				clock-names = "dspi";
 				spi-num-chipselects = <4>;
+				dmas = <&edma1 1 14>,
+					<&edma1 1 15>;
+				dma-names = "rx", "tx";
 				status = "disabled";
 			};
 
@@ -310,6 +285,14 @@
 							<20000000>;
 			};
 
+			tcon0: timing-controller@4003d000 {
+				compatible = "fsl,vf610-tcon";
+				reg = <0x4003d000 0x1000>;
+				clocks = <&clks VF610_CLK_TCON0>;
+				clock-names = "ipg";
+				status = "disabled";
+			};
+
 			wdoga5: wdog@4003e000 {
 				compatible = "fsl,vf610-wdt", "fsl,imx21-wdt";
 				reg = <0x4003e000 0x1000>;
@@ -319,7 +302,7 @@
 				status = "disabled";
 			};
 
-			qspi0: quadspi@40044000 {
+			qspi0: spi@40044000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-qspi";
@@ -415,6 +398,17 @@
 				status = "disabled";
 			};
 
+			dcu0: dcu@40058000 {
+				compatible = "fsl,vf610-dcu";
+				reg = <0x40058000 0x1200>;
+				interrupts = <30 IRQ_TYPE_LEVEL_HIGH>;
+				clocks = <&clks VF610_CLK_DCU0>,
+					<&clks VF610_CLK_DCU0_DIV>;
+				clock-names = "dcu", "pix";
+				fsl,tcon = <&tcon0>;
+				status = "disabled";
+			};
+
 			i2c0: i2c@40066000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -481,6 +475,7 @@
 			compatible = "fsl,aips-bus", "simple-bus";
 			#address-cells = <1>;
 			#size-cells = <1>;
+			reg = <0x40080000 0x0007f000>;
 			ranges;
 
 			edma1: dma-controller@40098000 {
@@ -497,6 +492,12 @@
 				clocks = <&clks VF610_CLK_DMAMUX2>,
 					<&clks VF610_CLK_DMAMUX3>;
 				status = "disabled";
+			};
+
+			ocotp: ocotp@400a5000 {
+				compatible = "fsl,vf610-ocotp";
+				reg = <0x400a5000 0x1000>;
+				clocks = <&clks VF610_CLK_OCOTP>;
 			};
 
 			snvs0: snvs@400a7000 {
@@ -531,7 +532,7 @@
 				status = "disabled";
 			};
 
-			dspi2: dspi2@400ac000 {
+			dspi2: spi@400ac000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-dspi";
@@ -540,10 +541,13 @@
 				clocks = <&clks VF610_CLK_DSPI2>;
 				clock-names = "dspi";
 				spi-num-chipselects = <2>;
+				dmas = <&edma1 0 10>,
+					<&edma1 0 11>;
+				dma-names = "rx", "tx";
 				status = "disabled";
 			};
 
-			dspi3: dspi3@400ad000 {
+			dspi3: spi@400ad000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-dspi";
@@ -552,6 +556,9 @@
 				clocks = <&clks VF610_CLK_DSPI3>;
 				clock-names = "dspi";
 				spi-num-chipselects = <2>;
+				dmas = <&edma1 0 12>,
+					<&edma1 0 13>;
+				dma-names = "rx", "tx";
 				status = "disabled";
 			};
 
@@ -621,7 +628,7 @@
 				status = "disabled";
 			};
 
-			qspi1: quadspi@400c4000 {
+			qspi1: spi@400c4000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,vf610-qspi";
@@ -722,11 +729,6 @@
 				dma-names = "rx","tx";
 				status = "disabled";
 			};
-		};
-
-		iio-hwmon {
-			compatible = "iio-hwmon";
-			io-channels = <&adc0 16>, <&adc1 16>;
 		};
 	};
 };

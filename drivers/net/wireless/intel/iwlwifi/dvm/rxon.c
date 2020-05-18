@@ -1,23 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /******************************************************************************
  *
  * Copyright(c) 2003 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2015 Intel Deutschland GmbH
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110, USA
- *
- * The full GNU General Public License is included in this distribution in the
- * file called LICENSE.
  *
  * Contact Information:
  * Intel Linux Wireless <linuxwifi@intel.com>
@@ -523,11 +508,6 @@ static int iwlagn_rxon_connect(struct iwl_priv *priv,
 		return ret;
 	}
 
-	if (ctx->vif && ctx->vif->type == NL80211_IFTYPE_STATION &&
-	    priv->cfg->ht_params && priv->cfg->ht_params->smps_mode)
-		ieee80211_request_smps(ctx->vif,
-				       priv->cfg->ht_params->smps_mode);
-
 	return 0;
 }
 
@@ -719,7 +699,7 @@ void iwl_set_rxon_ht(struct iwl_priv *priv, struct iwl_ht_config *ht_conf)
 void iwl_set_rxon_channel(struct iwl_priv *priv, struct ieee80211_channel *ch,
 			 struct iwl_rxon_context *ctx)
 {
-	enum ieee80211_band band = ch->band;
+	enum nl80211_band band = ch->band;
 	u16 channel = ch->hw_value;
 
 	if ((le16_to_cpu(ctx->staging.channel) == channel) &&
@@ -727,7 +707,7 @@ void iwl_set_rxon_channel(struct iwl_priv *priv, struct ieee80211_channel *ch,
 		return;
 
 	ctx->staging.channel = cpu_to_le16(channel);
-	if (band == IEEE80211_BAND_5GHZ)
+	if (band == NL80211_BAND_5GHZ)
 		ctx->staging.flags &= ~RXON_FLG_BAND_24G_MSK;
 	else
 		ctx->staging.flags |= RXON_FLG_BAND_24G_MSK;
@@ -740,10 +720,10 @@ void iwl_set_rxon_channel(struct iwl_priv *priv, struct ieee80211_channel *ch,
 
 void iwl_set_flags_for_band(struct iwl_priv *priv,
 			    struct iwl_rxon_context *ctx,
-			    enum ieee80211_band band,
+			    enum nl80211_band band,
 			    struct ieee80211_vif *vif)
 {
-	if (band == IEEE80211_BAND_5GHZ) {
+	if (band == NL80211_BAND_5GHZ) {
 		ctx->staging.flags &=
 		    ~(RXON_FLG_BAND_24G_MSK | RXON_FLG_AUTO_DETECT_MSK
 		      | RXON_FLG_CCK_MSK);
@@ -1125,7 +1105,7 @@ int iwlagn_commit_rxon(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 		return 0;
 	}
 
-	iwl_set_rxon_hwcrypto(priv, ctx, !iwlwifi_mod_params.sw_crypto);
+	iwl_set_rxon_hwcrypto(priv, ctx, !iwlwifi_mod_params.swcrypto);
 
 	IWL_DEBUG_INFO(priv,
 		       "Going to commit RXON\n"
@@ -1476,7 +1456,7 @@ void iwlagn_bss_info_changed(struct ieee80211_hw *hw,
 
 	iwlagn_set_rxon_chain(priv, ctx);
 
-	if (bss_conf->use_cts_prot && (priv->band != IEEE80211_BAND_5GHZ))
+	if (bss_conf->use_cts_prot && (priv->band != NL80211_BAND_5GHZ))
 		ctx->staging.flags |= RXON_FLG_TGG_PROTECT_MSK;
 	else
 		ctx->staging.flags &= ~RXON_FLG_TGG_PROTECT_MSK;

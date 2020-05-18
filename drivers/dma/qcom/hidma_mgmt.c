@@ -1,33 +1,27 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Qualcomm Technologies HIDMA DMA engine Management interface
  *
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/dmaengine.h>
 #include <linux/acpi.h>
 #include <linux/of.h>
 #include <linux/property.h>
-#include <linux/interrupt.h>
-#include <linux/platform_device.h>
+#include <linux/of_address.h>
+#include <linux/of_irq.h>
+#include <linux/of_platform.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 #include <linux/bitops.h>
+#include <linux/dma-mapping.h>
 
 #include "hidma_mgmt.h"
 
-#define HIDMA_QOS_N_OFFSET		0x300
+#define HIDMA_QOS_N_OFFSET		0x700
 #define HIDMA_CFG_OFFSET		0x400
 #define HIDMA_MAX_BUS_REQ_LEN_OFFSET	0x41C
 #define HIDMA_MAX_XACTIONS_OFFSET	0x420
@@ -47,6 +41,26 @@
 
 #define HIDMA_AUTOSUSPEND_TIMEOUT	2000
 #define HIDMA_MAX_CHANNEL_WEIGHT	15
+
+static unsigned int max_write_request;
+module_param(max_write_request, uint, 0644);
+MODULE_PARM_DESC(max_write_request,
+		"maximum write burst (default: ACPI/DT value)");
+
+static unsigned int max_read_request;
+module_param(max_read_request, uint, 0644);
+MODULE_PARM_DESC(max_read_request,
+		"maximum read burst (default: ACPI/DT value)");
+
+static unsigned int max_wr_xactions;
+module_param(max_wr_xactions, uint, 0644);
+MODULE_PARM_DESC(max_wr_xactions,
+	"maximum number of write transactions (default: ACPI/DT value)");
+
+static unsigned int max_rd_xactions;
+module_param(max_rd_xactions, uint, 0644);
+MODULE_PARM_DESC(max_rd_xactions,
+	"maximum number of read transactions (default: ACPI/DT value)");
 
 int hidma_mgmt_setup(struct hidma_mgmt_dev *mgmtdev)
 {
@@ -169,7 +183,6 @@ static int hidma_mgmt_probe(struct platform_device *pdev)
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
-		dev_err(&pdev->dev, "irq resources not found\n");
 		rc = irq;
 		goto out;
 	}
@@ -206,12 +219,27 @@ static int hidma_mgmt_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+	if (max_write_request &&
+			(max_write_request != mgmtdev->max_write_request)) {
+		dev_info(&pdev->dev, "overriding max-write-burst-bytes: %d\n",
+			max_write_request);
+		mgmtdev->max_write_request = max_write_request;
+	} else
+		max_write_request = mgmtdev->max_write_request;
+
 	rc = device_property_read_u32(&pdev->dev, "max-read-burst-bytes",
 				      &mgmtdev->max_read_request);
 	if (rc) {
 		dev_err(&pdev->dev, "max-read-burst-bytes missing\n");
 		goto out;
 	}
+	if (max_read_request &&
+			(max_read_request != mgmtdev->max_read_request)) {
+		dev_info(&pdev->dev, "overriding max-read-burst-bytes: %d\n",
+			max_read_request);
+		mgmtdev->max_read_request = max_read_request;
+	} else
+		max_read_request = mgmtdev->max_read_request;
 
 	rc = device_property_read_u32(&pdev->dev, "max-write-transactions",
 				      &mgmtdev->max_wr_xactions);
@@ -219,6 +247,13 @@ static int hidma_mgmt_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "max-write-transactions missing\n");
 		goto out;
 	}
+	if (max_wr_xactions &&
+			(max_wr_xactions != mgmtdev->max_wr_xactions)) {
+		dev_info(&pdev->dev, "overriding max-write-transactions: %d\n",
+			max_wr_xactions);
+		mgmtdev->max_wr_xactions = max_wr_xactions;
+	} else
+		max_wr_xactions = mgmtdev->max_wr_xactions;
 
 	rc = device_property_read_u32(&pdev->dev, "max-read-transactions",
 				      &mgmtdev->max_rd_xactions);
@@ -226,6 +261,13 @@ static int hidma_mgmt_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "max-read-transactions missing\n");
 		goto out;
 	}
+	if (max_rd_xactions &&
+			(max_rd_xactions != mgmtdev->max_rd_xactions)) {
+		dev_info(&pdev->dev, "overriding max-read-transactions: %d\n",
+			max_rd_xactions);
+		mgmtdev->max_rd_xactions = max_rd_xactions;
+	} else
+		max_rd_xactions = mgmtdev->max_rd_xactions;
 
 	mgmtdev->priority = devm_kcalloc(&pdev->dev,
 					 mgmtdev->dma_channels,
@@ -281,6 +323,7 @@ static const struct acpi_device_id hidma_mgmt_acpi_ids[] = {
 	{"QCOM8060"},
 	{},
 };
+MODULE_DEVICE_TABLE(acpi, hidma_mgmt_acpi_ids);
 #endif
 
 static const struct of_device_id hidma_mgmt_match[] = {
@@ -298,5 +341,85 @@ static struct platform_driver hidma_mgmt_driver = {
 	},
 };
 
-module_platform_driver(hidma_mgmt_driver);
+#if defined(CONFIG_OF) && defined(CONFIG_OF_IRQ)
+static int object_counter;
+
+static int __init hidma_mgmt_of_populate_channels(struct device_node *np)
+{
+	struct platform_device *pdev_parent = of_find_device_by_node(np);
+	struct platform_device_info pdevinfo;
+	struct device_node *child;
+	struct resource *res;
+	int ret = 0;
+
+	/* allocate a resource array */
+	res = kcalloc(3, sizeof(*res), GFP_KERNEL);
+	if (!res)
+		return -ENOMEM;
+
+	for_each_available_child_of_node(np, child) {
+		struct platform_device *new_pdev;
+
+		ret = of_address_to_resource(child, 0, &res[0]);
+		if (!ret)
+			goto out;
+
+		ret = of_address_to_resource(child, 1, &res[1]);
+		if (!ret)
+			goto out;
+
+		ret = of_irq_to_resource(child, 0, &res[2]);
+		if (ret <= 0)
+			goto out;
+
+		memset(&pdevinfo, 0, sizeof(pdevinfo));
+		pdevinfo.fwnode = &child->fwnode;
+		pdevinfo.parent = pdev_parent ? &pdev_parent->dev : NULL;
+		pdevinfo.name = child->name;
+		pdevinfo.id = object_counter++;
+		pdevinfo.res = res;
+		pdevinfo.num_res = 3;
+		pdevinfo.data = NULL;
+		pdevinfo.size_data = 0;
+		pdevinfo.dma_mask = DMA_BIT_MASK(64);
+		new_pdev = platform_device_register_full(&pdevinfo);
+		if (IS_ERR(new_pdev)) {
+			ret = PTR_ERR(new_pdev);
+			goto out;
+		}
+		new_pdev->dev.of_node = child;
+		of_dma_configure(&new_pdev->dev, child, true);
+		/*
+		 * It is assumed that calling of_msi_configure is safe on
+		 * platforms with or without MSI support.
+		 */
+		of_msi_configure(&new_pdev->dev, child);
+	}
+
+	kfree(res);
+
+	return ret;
+
+out:
+	of_node_put(child);
+	kfree(res);
+
+	return ret;
+}
+#endif
+
+static int __init hidma_mgmt_init(void)
+{
+#if defined(CONFIG_OF) && defined(CONFIG_OF_IRQ)
+	struct device_node *child;
+
+	for_each_matching_node(child, hidma_mgmt_match) {
+		/* device tree based firmware here */
+		hidma_mgmt_of_populate_channels(child);
+	}
+#endif
+	return platform_driver_register(&hidma_mgmt_driver);
+
+}
+module_init(hidma_mgmt_init);
 MODULE_LICENSE("GPL v2");

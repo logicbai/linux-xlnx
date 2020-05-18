@@ -1,24 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright 2009-2012 Freescale Semiconductor, Inc. All Rights Reserved.
  *
  * Author: Wu Guoxing <b39297@freescale.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 
 #define GPIO_GROUP_NUM 2
 #define GPIO_NUM_PER_GROUP 8
@@ -111,8 +102,6 @@ static const struct i2c_device_id mc9s08dz60_id[] = {
 	{},
 };
 
-MODULE_DEVICE_TABLE(i2c, mc9s08dz60_id);
-
 static struct i2c_driver mc9s08dz60_i2c_driver = {
 	.driver = {
 		.name = "mc9s08dz60",
@@ -120,10 +109,4 @@ static struct i2c_driver mc9s08dz60_i2c_driver = {
 	.probe = mc9s08dz60_probe,
 	.id_table = mc9s08dz60_id,
 };
-
-module_i2c_driver(mc9s08dz60_i2c_driver);
-
-MODULE_AUTHOR("Freescale Semiconductor, Inc. "
-		"Wu Guoxing <b39297@freescale.com>");
-MODULE_DESCRIPTION("mc9s08dz60 gpio function on mx35 3ds board");
-MODULE_LICENSE("GPL v2");
+builtin_i2c_driver(mc9s08dz60_i2c_driver);

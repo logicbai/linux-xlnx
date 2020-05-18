@@ -28,7 +28,6 @@ The compatible list for this generic sound card currently:
  (compatible with CS4271 and CS4272)
 
  "fsl,imx-audio-wm8962"
- (compatible with Documentation/devicetree/bindings/sound/imx-audio-wm8962.txt)
 
  "fsl,imx-audio-sgtl5000"
  (compatible with Documentation/devicetree/bindings/sound/imx-audio-sgtl5000.txt)
@@ -58,7 +57,7 @@ Required properties:
 			   * DMIC (stands for Digital Microphone Jack)
 
 			  Note: The "Mic Jack" and "AMIC" are redundant while
-			        coexsiting in order to support the old bindings
+			        coexisting in order to support the old bindings
 				of wm8962 and sgtl5000.
 
 Optional properties:

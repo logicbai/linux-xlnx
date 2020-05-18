@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * MPC8641 HPCN Device Tree Source
  *
  * Copyright 2006 Freescale Semiconductor Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 /include/ "mpc8641si-pre.dtsi"
@@ -14,10 +10,6 @@
 / {
 	model = "MPC8641HPCN";
 	compatible = "fsl,mpc8641hpcn";
-
-	aliases {
-		pci1 = &pci1;
-	};
 
 	memory {
 		device_type = "memory";
@@ -173,100 +165,100 @@
 		interrupt-map-mask = <0xff00 0 0 7>;
 		interrupt-map = <
 			/* IDSEL 0x11 func 0 - PCI slot 1 */
-			0x8800 0 0 1 &mpic 2 1
-			0x8800 0 0 2 &mpic 3 1
-			0x8800 0 0 3 &mpic 4 1
-			0x8800 0 0 4 &mpic 1 1
+			0x8800 0 0 1 &mpic 2 1 0 0
+			0x8800 0 0 2 &mpic 3 1 0 0
+			0x8800 0 0 3 &mpic 4 1 0 0
+			0x8800 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 1 - PCI slot 1 */
-			0x8900 0 0 1 &mpic 2 1
-			0x8900 0 0 2 &mpic 3 1
-			0x8900 0 0 3 &mpic 4 1
-			0x8900 0 0 4 &mpic 1 1
+			0x8900 0 0 1 &mpic 2 1 0 0
+			0x8900 0 0 2 &mpic 3 1 0 0
+			0x8900 0 0 3 &mpic 4 1 0 0
+			0x8900 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 2 - PCI slot 1 */
-			0x8a00 0 0 1 &mpic 2 1
-			0x8a00 0 0 2 &mpic 3 1
-			0x8a00 0 0 3 &mpic 4 1
-			0x8a00 0 0 4 &mpic 1 1
+			0x8a00 0 0 1 &mpic 2 1 0 0
+			0x8a00 0 0 2 &mpic 3 1 0 0
+			0x8a00 0 0 3 &mpic 4 1 0 0
+			0x8a00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 3 - PCI slot 1 */
-			0x8b00 0 0 1 &mpic 2 1
-			0x8b00 0 0 2 &mpic 3 1
-			0x8b00 0 0 3 &mpic 4 1
-			0x8b00 0 0 4 &mpic 1 1
+			0x8b00 0 0 1 &mpic 2 1 0 0
+			0x8b00 0 0 2 &mpic 3 1 0 0
+			0x8b00 0 0 3 &mpic 4 1 0 0
+			0x8b00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 4 - PCI slot 1 */
-			0x8c00 0 0 1 &mpic 2 1
-			0x8c00 0 0 2 &mpic 3 1
-			0x8c00 0 0 3 &mpic 4 1
-			0x8c00 0 0 4 &mpic 1 1
+			0x8c00 0 0 1 &mpic 2 1 0 0
+			0x8c00 0 0 2 &mpic 3 1 0 0
+			0x8c00 0 0 3 &mpic 4 1 0 0
+			0x8c00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 5 - PCI slot 1 */
-			0x8d00 0 0 1 &mpic 2 1
-			0x8d00 0 0 2 &mpic 3 1
-			0x8d00 0 0 3 &mpic 4 1
-			0x8d00 0 0 4 &mpic 1 1
+			0x8d00 0 0 1 &mpic 2 1 0 0
+			0x8d00 0 0 2 &mpic 3 1 0 0
+			0x8d00 0 0 3 &mpic 4 1 0 0
+			0x8d00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 6 - PCI slot 1 */
-			0x8e00 0 0 1 &mpic 2 1
-			0x8e00 0 0 2 &mpic 3 1
-			0x8e00 0 0 3 &mpic 4 1
-			0x8e00 0 0 4 &mpic 1 1
+			0x8e00 0 0 1 &mpic 2 1 0 0
+			0x8e00 0 0 2 &mpic 3 1 0 0
+			0x8e00 0 0 3 &mpic 4 1 0 0
+			0x8e00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x11 func 7 - PCI slot 1 */
-			0x8f00 0 0 1 &mpic 2 1
-			0x8f00 0 0 2 &mpic 3 1
-			0x8f00 0 0 3 &mpic 4 1
-			0x8f00 0 0 4 &mpic 1 1
+			0x8f00 0 0 1 &mpic 2 1 0 0
+			0x8f00 0 0 2 &mpic 3 1 0 0
+			0x8f00 0 0 3 &mpic 4 1 0 0
+			0x8f00 0 0 4 &mpic 1 1 0 0
 
 			/* IDSEL 0x12 func 0 - PCI slot 2 */
-			0x9000 0 0 1 &mpic 3 1
-			0x9000 0 0 2 &mpic 4 1
-			0x9000 0 0 3 &mpic 1 1
-			0x9000 0 0 4 &mpic 2 1
+			0x9000 0 0 1 &mpic 3 1 0 0
+			0x9000 0 0 2 &mpic 4 1 0 0
+			0x9000 0 0 3 &mpic 1 1 0 0
+			0x9000 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 1 - PCI slot 2 */
-			0x9100 0 0 1 &mpic 3 1
-			0x9100 0 0 2 &mpic 4 1
-			0x9100 0 0 3 &mpic 1 1
-			0x9100 0 0 4 &mpic 2 1
+			0x9100 0 0 1 &mpic 3 1 0 0
+			0x9100 0 0 2 &mpic 4 1 0 0
+			0x9100 0 0 3 &mpic 1 1 0 0
+			0x9100 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 2 - PCI slot 2 */
-			0x9200 0 0 1 &mpic 3 1
-			0x9200 0 0 2 &mpic 4 1
-			0x9200 0 0 3 &mpic 1 1
-			0x9200 0 0 4 &mpic 2 1
+			0x9200 0 0 1 &mpic 3 1 0 0
+			0x9200 0 0 2 &mpic 4 1 0 0
+			0x9200 0 0 3 &mpic 1 1 0 0
+			0x9200 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 3 - PCI slot 2 */
-			0x9300 0 0 1 &mpic 3 1
-			0x9300 0 0 2 &mpic 4 1
-			0x9300 0 0 3 &mpic 1 1
-			0x9300 0 0 4 &mpic 2 1
+			0x9300 0 0 1 &mpic 3 1 0 0
+			0x9300 0 0 2 &mpic 4 1 0 0
+			0x9300 0 0 3 &mpic 1 1 0 0
+			0x9300 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 4 - PCI slot 2 */
-			0x9400 0 0 1 &mpic 3 1
-			0x9400 0 0 2 &mpic 4 1
-			0x9400 0 0 3 &mpic 1 1
-			0x9400 0 0 4 &mpic 2 1
+			0x9400 0 0 1 &mpic 3 1 0 0
+			0x9400 0 0 2 &mpic 4 1 0 0
+			0x9400 0 0 3 &mpic 1 1 0 0
+			0x9400 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 5 - PCI slot 2 */
-			0x9500 0 0 1 &mpic 3 1
-			0x9500 0 0 2 &mpic 4 1
-			0x9500 0 0 3 &mpic 1 1
-			0x9500 0 0 4 &mpic 2 1
+			0x9500 0 0 1 &mpic 3 1 0 0
+			0x9500 0 0 2 &mpic 4 1 0 0
+			0x9500 0 0 3 &mpic 1 1 0 0
+			0x9500 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 6 - PCI slot 2 */
-			0x9600 0 0 1 &mpic 3 1
-			0x9600 0 0 2 &mpic 4 1
-			0x9600 0 0 3 &mpic 1 1
-			0x9600 0 0 4 &mpic 2 1
+			0x9600 0 0 1 &mpic 3 1 0 0
+			0x9600 0 0 2 &mpic 4 1 0 0
+			0x9600 0 0 3 &mpic 1 1 0 0
+			0x9600 0 0 4 &mpic 2 1 0 0
 
 			/* IDSEL 0x12 func 7 - PCI slot 2 */
-			0x9700 0 0 1 &mpic 3 1
-			0x9700 0 0 2 &mpic 4 1
-			0x9700 0 0 3 &mpic 1 1
-			0x9700 0 0 4 &mpic 2 1
+			0x9700 0 0 1 &mpic 3 1 0 0
+			0x9700 0 0 2 &mpic 4 1 0 0
+			0x9700 0 0 3 &mpic 1 1 0 0
+			0x9700 0 0 4 &mpic 2 1 0 0
 
 			// IDSEL 0x1c  USB
 			0xe000 0 0 1 &i8259 12 2
@@ -359,29 +351,11 @@
 	};
 
 	pci1: pcie@ffe09000 {
-		compatible = "fsl,mpc8641-pcie";
-		device_type = "pci";
-		#size-cells = <2>;
-		#address-cells = <3>;
 		reg = <0xffe09000 0x1000>;
-		bus-range = <0 0xff>;
 		ranges = <0x02000000 0x0 0xa0000000 0xa0000000 0x0 0x20000000
 			  0x01000000 0x0 0x00000000 0xffc10000 0x0 0x00010000>;
-		clock-frequency = <100000000>;
-		interrupts = <25 2 0 0>;
-		interrupt-map-mask = <0xf800 0 0 7>;
-		interrupt-map = <
-			/* IDSEL 0x0 */
-			0x0000 0 0 1 &mpic 4 1
-			0x0000 0 0 2 &mpic 5 1
-			0x0000 0 0 3 &mpic 6 1
-			0x0000 0 0 4 &mpic 7 1
-			>;
+
 		pcie@0 {
-			reg = <0 0 0 0 0>;
-			#size-cells = <2>;
-			#address-cells = <3>;
-			device_type = "pci";
 			ranges = <0x02000000 0x0 0xa0000000
 				  0x02000000 0x0 0xa0000000
 				  0x0 0x20000000

@@ -1,27 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Timberdale FPGA GPIO driver
+ * Author: Mocean Laboratories
  * Copyright (c) 2009 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 /* Supports:
  * Timberdale FPGA GPIO
  */
 
-#include <linux/module.h>
-#include <linux/gpio.h>
+#include <linux/init.h>
+#include <linux/gpio/driver.h>
 #include <linux/platform_device.h>
 #include <linux/irq.h>
 #include <linux/io.h>
@@ -228,7 +217,6 @@ static int timbgpio_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct gpio_chip *gc;
 	struct timbgpio *tgpio;
-	struct resource *iomem;
 	struct timbgpio_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	int irq = platform_get_irq(pdev, 0);
 
@@ -237,17 +225,15 @@ static int timbgpio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	tgpio = devm_kzalloc(dev, sizeof(struct timbgpio), GFP_KERNEL);
-	if (!tgpio) {
-		dev_err(dev, "Memory alloc failed\n");
+	tgpio = devm_kzalloc(dev, sizeof(*tgpio), GFP_KERNEL);
+	if (!tgpio)
 		return -EINVAL;
-	}
+
 	tgpio->irq_base = pdata->irq_base;
 
 	spin_lock_init(&tgpio->lock);
 
-	iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	tgpio->membase = devm_ioremap_resource(dev, iomem);
+	tgpio->membase = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(tgpio->membase))
 		return PTR_ERR(tgpio->membase);
 
@@ -290,40 +276,14 @@ static int timbgpio_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int timbgpio_remove(struct platform_device *pdev)
-{
-	struct timbgpio_platform_data *pdata = dev_get_platdata(&pdev->dev);
-	struct timbgpio *tgpio = platform_get_drvdata(pdev);
-	int irq = platform_get_irq(pdev, 0);
-
-	if (irq >= 0 && tgpio->irq_base > 0) {
-		int i;
-		for (i = 0; i < pdata->nr_pins; i++) {
-			irq_set_chip(tgpio->irq_base + i, NULL);
-			irq_set_chip_data(tgpio->irq_base + i, NULL);
-		}
-
-		irq_set_handler(irq, NULL);
-		irq_set_handler_data(irq, NULL);
-	}
-
-	return 0;
-}
-
 static struct platform_driver timbgpio_platform_driver = {
 	.driver = {
-		.name	= DRIVER_NAME,
+		.name			= DRIVER_NAME,
+		.suppress_bind_attrs	= true,
 	},
 	.probe		= timbgpio_probe,
-	.remove		= timbgpio_remove,
 };
 
 /*--------------------------------------------------------------------------*/
 
-module_platform_driver(timbgpio_platform_driver);
-
-MODULE_DESCRIPTION("Timberdale GPIO driver");
-MODULE_LICENSE("GPL v2");
-MODULE_AUTHOR("Mocean Laboratories");
-MODULE_ALIAS("platform:"DRIVER_NAME);
-
+builtin_platform_driver(timbgpio_platform_driver);

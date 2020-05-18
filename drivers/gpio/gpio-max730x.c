@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /**
  * Copyright (C) 2006 Juergen Beisert, Pengutronix
  * Copyright (C) 2008 Guennadi Liakhovetski, Pengutronix
  * Copyright (C) 2009 Wolfram Sang, Pengutronix
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * The Maxim MAX7300/1 device is an I2C/SPI driven GPIO expander. There are
  * 28 GPIOs. 8 of them can trigger an interrupt. See datasheet for more
@@ -35,7 +32,7 @@
 #include <linux/platform_device.h>
 #include <linux/mutex.h>
 #include <linux/spi/max7301.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/slab.h>
 
 /*
@@ -192,6 +189,10 @@ int __max730x_probe(struct max7301 *ts)
 	ts->chip.parent = dev;
 	ts->chip.owner = THIS_MODULE;
 
+	ret = gpiochip_add_data(&ts->chip, ts);
+	if (ret)
+		goto exit_destroy;
+
 	/*
 	 * initialize pullups according to platform data and cache the
 	 * register values for later use.
@@ -212,10 +213,6 @@ int __max730x_probe(struct max7301 *ts)
 				goto exit_destroy;
 		}
 	}
-
-	ret = gpiochip_add_data(&ts->chip, ts);
-	if (ret)
-		goto exit_destroy;
 
 	return ret;
 

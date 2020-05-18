@@ -1,22 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* IEEE754 floating point arithmetic
  * single precision
  */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
- *
- *  This program is free software; you can distribute it and/or modify it
- *  under the terms of the GNU General Public License (Version 2) as
- *  published by the Free Software Foundation.
- *
- *  This program is distributed in the hope it will be useful, but WITHOUT
- *  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- *  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- *  for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA.
  */
 
 #include <linux/compiler.h>
@@ -54,15 +42,18 @@ union ieee754sp __cold ieee754sp_nanxcpt(union ieee754sp r)
 	assert(ieee754sp_issnan(r));
 
 	ieee754_setcx(IEEE754_INVALID_OPERATION);
-	if (ieee754_csr.nan2008)
+	if (ieee754_csr.nan2008) {
 		SPMANT(r) |= SP_MBIT(SP_FBITS - 1);
-	else
-		r = ieee754sp_indef();
+	} else {
+		SPMANT(r) &= ~SP_MBIT(SP_FBITS - 1);
+		if (!ieee754sp_isnan(r))
+			SPMANT(r) |= SP_MBIT(SP_FBITS - 2);
+	}
 
 	return r;
 }
 
-static unsigned ieee754sp_get_rounding(int sn, unsigned xm)
+static unsigned int ieee754sp_get_rounding(int sn, unsigned int xm)
 {
 	/* inexact must round of 3 bits
 	 */
@@ -93,7 +84,7 @@ static unsigned ieee754sp_get_rounding(int sn, unsigned xm)
  * xe is an unbiased exponent
  * xm is 3bit extended precision value.
  */
-union ieee754sp ieee754sp_format(int sn, int xe, unsigned xm)
+union ieee754sp ieee754sp_format(int sn, int xe, unsigned int xm)
 {
 	assert(xm);		/* we don't gen exact zeros (probably should) */
 
@@ -138,7 +129,8 @@ union ieee754sp ieee754sp_format(int sn, int xe, unsigned xm)
 		} else {
 			/* sticky right shift es bits
 			 */
-			SPXSRSXn(es);
+			xm = XSPSRS(xm, es);
+			xe += es;
 			assert((xm & (SP_HIDDEN_BIT << 3)) == 0);
 			assert(xe == SP_EMIN);
 		}

@@ -1,23 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Intel SoC Core Telemetry Driver
  * Copyright (C) 2015, Intel Corporation.
  * All Rights Reserved.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  * Telemetry Framework provides platform related PM and performance statistics.
  * This file provides the core telemetry API implementation.
  */
-#include <linux/module.h>
-#include <linux/init.h>
 #include <linux/device.h>
+#include <linux/module.h>
 
 #include <asm/intel_telemetry.h>
 
@@ -25,7 +16,7 @@
 
 struct telemetry_core_config {
 	struct telemetry_plt_config *plt_config;
-	struct telemetry_core_ops *telem_ops;
+	const struct telemetry_core_ops *telem_ops;
 };
 
 static struct telemetry_core_config telm_core_conf;
@@ -95,7 +86,7 @@ static int telemetry_def_reset_events(void)
 	return 0;
 }
 
-static struct telemetry_core_ops telm_defpltops = {
+static const struct telemetry_core_ops telm_defpltops = {
 	.set_sampling_period = telemetry_def_set_sampling_period,
 	.get_sampling_period = telemetry_def_get_sampling_period,
 	.get_trace_verbosity = telemetry_def_get_trace_verbosity,
@@ -332,7 +323,7 @@ EXPORT_SYMBOL_GPL(telemetry_set_trace_verbosity);
  *
  * Return: 0 success, < 0 for failure
  */
-int telemetry_set_pltdata(struct telemetry_core_ops *ops,
+int telemetry_set_pltdata(const struct telemetry_core_ops *ops,
 			  struct telemetry_plt_config *pltconfig)
 {
 	if (ops)
@@ -461,4 +452,4 @@ module_exit(telemetry_module_exit);
 
 MODULE_AUTHOR("Souvik Kumar Chakravarty <souvik.k.chakravarty@intel.com>");
 MODULE_DESCRIPTION("Intel SoC Telemetry Interface");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");

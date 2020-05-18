@@ -1,11 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0
+#include <inttypes.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include <linux/compiler.h>
 
+#include "../util/callchain.h"
+#include "../util/debug.h"
 #include "../util/hist.h"
-#include "../util/util.h"
 #include "../util/sort.h"
 #include "../util/evsel.h"
 #include "../util/evlist.h"
+#include "../perf.h"
 
 /* hist period print (hpp) functions */
 
@@ -22,7 +28,7 @@ static int __hpp__fmt(struct perf_hpp *hpp, struct hist_entry *he,
 {
 	int ret;
 	struct hists *hists = he->hists;
-	struct perf_evsel *evsel = hists_to_evsel(hists);
+	struct evsel *evsel = hists_to_evsel(hists);
 	char *buf = hpp->buf;
 	size_t size = hpp->size;
 
@@ -40,7 +46,7 @@ static int __hpp__fmt(struct perf_hpp *hpp, struct hist_entry *he,
 	if (perf_evsel__is_group_event(evsel)) {
 		int prev_idx, idx_delta;
 		struct hist_entry *pair;
-		int nr_members = evsel->nr_members;
+		int nr_members = evsel->core.nr_members;
 
 		prev_idx = perf_evsel__group_idx(evsel);
 
@@ -150,7 +156,7 @@ static int __hpp__sort(struct hist_entry *a, struct hist_entry *b,
 {
 	s64 ret;
 	int i, nr_members;
-	struct perf_evsel *evsel;
+	struct evsel *evsel;
 	struct hist_entry *pair;
 	u64 *fields_a, *fields_b;
 
@@ -162,7 +168,7 @@ static int __hpp__sort(struct hist_entry *a, struct hist_entry *b,
 	if (!perf_evsel__is_group_event(evsel))
 		return ret;
 
-	nr_members = evsel->nr_members;
+	nr_members = evsel->core.nr_members;
 	fields_a = calloc(nr_members, sizeof(*fields_a));
 	fields_b = calloc(nr_members, sizeof(*fields_b));
 
@@ -205,22 +211,25 @@ static int __hpp__sort_acc(struct hist_entry *a, struct hist_entry *b,
 		if (ret)
 			return ret;
 
-		if (a->thread != b->thread || !symbol_conf.use_callchain)
+		if (a->thread != b->thread || !hist_entry__has_callchains(a) || !symbol_conf.use_callchain)
 			return 0;
 
 		ret = b->callchain->max_depth - a->callchain->max_depth;
+		if (callchain_param.order == ORDER_CALLER)
+			ret = -ret;
 	}
 	return ret;
 }
 
 static int hpp__width_fn(struct perf_hpp_fmt *fmt,
 			 struct perf_hpp *hpp __maybe_unused,
-			 struct perf_evsel *evsel)
+			 struct hists *hists)
 {
 	int len = fmt->user_len ?: fmt->len;
+	struct evsel *evsel = hists_to_evsel(hists);
 
 	if (symbol_conf.event_group)
-		len = max(len, evsel->nr_members * fmt->len);
+		len = max(len, evsel->core.nr_members * fmt->len);
 
 	if (len < (int)strlen(fmt->name))
 		len = strlen(fmt->name);
@@ -229,13 +238,14 @@ static int hpp__width_fn(struct perf_hpp_fmt *fmt,
 }
 
 static int hpp__header_fn(struct perf_hpp_fmt *fmt, struct perf_hpp *hpp,
-			  struct perf_evsel *evsel)
+			  struct hists *hists, int line __maybe_unused,
+			  int *span __maybe_unused)
 {
-	int len = hpp__width_fn(fmt, hpp, evsel);
+	int len = hpp__width_fn(fmt, hpp, hists);
 	return scnprintf(hpp->buf, hpp->size, "%*s", len, fmt->name);
 }
 
-static int hpp_color_scnprintf(struct perf_hpp *hpp, const char *fmt, ...)
+int hpp_color_scnprintf(struct perf_hpp *hpp, const char *fmt, ...)
 {
 	va_list args;
 	ssize_t ssize = hpp->size;
@@ -440,6 +450,7 @@ struct perf_hpp_fmt perf_hpp__format[] = {
 struct perf_hpp_list perf_hpp_list = {
 	.fields	= LIST_HEAD_INIT(perf_hpp_list.fields),
 	.sorts	= LIST_HEAD_INIT(perf_hpp_list.sorts),
+	.nr_header_lines = 1,
 };
 
 #undef HPP__COLOR_PRINT_FNS
@@ -518,9 +529,15 @@ void perf_hpp_list__register_sort_field(struct perf_hpp_list *list,
 	list_add_tail(&format->sort_list, &list->sorts);
 }
 
+void perf_hpp_list__prepend_sort_field(struct perf_hpp_list *list,
+				       struct perf_hpp_fmt *format)
+{
+	list_add(&format->sort_list, &list->sorts);
+}
+
 void perf_hpp__column_unregister(struct perf_hpp_fmt *format)
 {
-	list_del(&format->list);
+	list_del_init(&format->list);
 }
 
 void perf_hpp__cancel_cumulate(void)
@@ -557,6 +574,10 @@ void perf_hpp__setup_output_field(struct perf_hpp_list *list)
 	perf_hpp_list__for_each_sort_list(list, fmt) {
 		struct perf_hpp_fmt *pos;
 
+		/* skip sort-only fields ("sort_compute" in perf diff) */
+		if (!fmt->entry && !fmt->color)
+			continue;
+
 		perf_hpp_list__for_each_format(list, pos) {
 			if (fmt_equal(fmt, pos))
 				goto next;
@@ -590,6 +611,13 @@ next:
 
 static void fmt_free(struct perf_hpp_fmt *fmt)
 {
+	/*
+	 * At this point fmt should be completely
+	 * unhooked, if not it's a bug.
+	 */
+	BUG_ON(!list_empty(&fmt->list));
+	BUG_ON(!list_empty(&fmt->sort_list));
+
 	if (fmt->free)
 		fmt->free(fmt);
 }
@@ -632,10 +660,10 @@ unsigned int hists__sort_list_width(struct hists *hists)
 		else
 			ret += 2;
 
-		ret += fmt->width(fmt, &dummy_hpp, hists_to_evsel(hists));
+		ret += fmt->width(fmt, &dummy_hpp, hists);
 	}
 
-	if (verbose && sort__has_sym) /* Addr + origin */
+	if (verbose > 0 && hists__has(hists, sym)) /* Addr + origin */
 		ret += 3 + BITS_PER_LONG / 4;
 
 	return ret;
@@ -657,7 +685,7 @@ unsigned int hists__overhead_width(struct hists *hists)
 		else
 			ret += 2;
 
-		ret += fmt->width(fmt, &dummy_hpp, hists_to_evsel(hists));
+		ret += fmt->width(fmt, &dummy_hpp, hists);
 	}
 
 	return ret;
@@ -693,6 +721,21 @@ void perf_hpp__reset_width(struct perf_hpp_fmt *fmt, struct hists *hists)
 
 	default:
 		break;
+	}
+}
+
+void hists__reset_column_width(struct hists *hists)
+{
+	struct perf_hpp_fmt *fmt;
+	struct perf_hpp_list_node *node;
+
+	hists__for_each_format(hists, fmt)
+		perf_hpp__reset_width(fmt, hists);
+
+	/* hierarchy entries have their own hpp list */
+	list_for_each_entry(node, &hists->hpp_formats, list) {
+		perf_hpp_list__for_each_format(&node->hpp, fmt)
+			perf_hpp__reset_width(fmt, hists);
 	}
 }
 
@@ -755,9 +798,9 @@ static int add_hierarchy_fmt(struct hists *hists, struct perf_hpp_fmt *fmt)
 }
 
 int perf_hpp__setup_hists_formats(struct perf_hpp_list *list,
-				  struct perf_evlist *evlist)
+				  struct evlist *evlist)
 {
-	struct perf_evsel *evsel;
+	struct evsel *evsel;
 	struct perf_hpp_fmt *fmt;
 	struct hists *hists;
 	int ret;
@@ -765,7 +808,7 @@ int perf_hpp__setup_hists_formats(struct perf_hpp_list *list,
 	if (!symbol_conf.report_hierarchy)
 		return 0;
 
-	evlist__for_each(evlist, evsel) {
+	evlist__for_each_entry(evlist, evsel) {
 		hists = evsel__hists(evsel);
 
 		perf_hpp_list__for_each_sort_list(list, fmt) {

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * For multichannel support
  */
@@ -35,6 +36,8 @@ struct hdac_chmap_ops {
 	/* check that the user-given chmap is supported */
 	int (*chmap_validate)(struct hdac_chmap *hchmap, int ca,
 			int channels, unsigned char *chmap);
+
+	int (*get_spk_alloc)(struct hdac_device *hdac, int pcm_idx);
 
 	void (*get_chmap)(struct hdac_device *hdac, int pcm_idx,
 					unsigned char *chmap);

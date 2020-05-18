@@ -1,22 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * TI TPS6591x GPIO driver
  *
  * Copyright 2010 Texas Instruments Inc.
  *
  * Author: Graeme Gregory <gg@slimlogic.co.uk>
- * Author: Jorge Eduardo Candelaria jedu@slimlogic.co.uk>
- *
- *  This program is free software; you can redistribute it and/or modify it
- *  under  the terms of the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the License, or (at your
- *  option) any later version.
- *
+ * Author: Jorge Eduardo Candelaria <jedu@slimlogic.co.uk>
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/errno.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/i2c.h>
 #include <linux/platform_device.h>
 #include <linux/mfd/tps65910.h>
@@ -184,7 +179,6 @@ skip_init:
 
 static struct platform_driver tps65910_gpio_driver = {
 	.driver.name    = "tps65910-gpio",
-	.driver.owner   = THIS_MODULE,
 	.probe		= tps65910_gpio_probe,
 };
 
@@ -193,15 +187,3 @@ static int __init tps65910_gpio_init(void)
 	return platform_driver_register(&tps65910_gpio_driver);
 }
 subsys_initcall(tps65910_gpio_init);
-
-static void __exit tps65910_gpio_exit(void)
-{
-	platform_driver_unregister(&tps65910_gpio_driver);
-}
-module_exit(tps65910_gpio_exit);
-
-MODULE_AUTHOR("Graeme Gregory <gg@slimlogic.co.uk>");
-MODULE_AUTHOR("Jorge Eduardo Candelaria jedu@slimlogic.co.uk>");
-MODULE_DESCRIPTION("GPIO interface for TPS65910/TPS6511 PMICs");
-MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:tps65910-gpio");

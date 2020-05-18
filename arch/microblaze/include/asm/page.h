@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * VM ops
  *
@@ -6,10 +7,6 @@
  * Copyright (C) 2006 Atmark Techno, Inc.
  * Changes for MMU support:
  *    Copyright (C) 2007 Xilinx, Inc.  All rights reserved.
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License. See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 
 #ifndef _ASM_MICROBLAZE_PAGE_H
@@ -95,7 +92,8 @@ typedef struct { unsigned long pgd; } pgd_t;
 #   else /* CONFIG_MMU */
 typedef struct { unsigned long	ste[64]; }	pmd_t;
 typedef struct { pmd_t		pue[1]; }	pud_t;
-typedef struct { pud_t		pge[1]; }	pgd_t;
+typedef struct { pud_t		p4e[1]; }	p4d_t;
+typedef struct { p4d_t		pge[1]; }	pgd_t;
 #   endif /* CONFIG_MMU */
 
 # define pte_val(x)	((x).pte)
